@@ -38,17 +38,26 @@ const api = {
 
     // === Developer 专用 API ===
     developer: {
+        // 添加开发项目（选择 package.json）
+        addApp: () => ipcRenderer.invoke('developer.apps.add'),
+
+        // 列出所有开发项目
+        listApps: () => ipcRenderer.invoke('developer.apps.list'),
+
+        // 从开发列表移除
+        removeApp: (appId) => ipcRenderer.invoke('developer.apps.remove', appId),
+
         // 启动源码目录中的 APP 进行调试
         launchApp: (sourceDir) => ipcRenderer.invoke('developer.apps.launch', sourceDir),
 
         // 打包 APP 源码目录为 zip
         packageApp: (sourceDir, outputPath) => ipcRenderer.invoke('developer.apps.package', sourceDir, outputPath),
 
-        // 从模板创建新 APP 项目骨架
-        scaffoldCreate: (targetDir, options) => ipcRenderer.invoke('developer.scaffold.create', targetDir, options),
+        // 清除 APP 运行数据
+        clearData: (appId) => ipcRenderer.invoke('developer.apps.clearData', appId),
 
-        // 选择目录对话框
-        selectDirectory: () => ipcRenderer.invoke('developer.dialog.selectDirectory'),
+        // 打开 APP 数据目录
+        openDataDir: (appId) => ipcRenderer.invoke('developer.apps.openDataDir', appId),
 
         // Vue 挂载完成通知
         appReady: () => ipcRenderer.invoke('developer.appReady')

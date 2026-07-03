@@ -11,14 +11,16 @@ if (process.env.NODE_ENV === 'development') {
     process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 }
 
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
 
-// 获取 canbox-core 注入的环境信息
-const core = require('canbox-core');
-const USERS_PATH = core.usersPath;
+// 获取 canbox-core 注入的环境信息（injection.js 通过 -r 预加载时挂到 global）
+const env = global.__CANBOX_ENV__;
+const USERS_PATH = env.usersPath;
+// canbox-core 根目录路径（用于 require store 等模块）
+const CORE_PATH = global.__CANBOX_CORE_PATH__;
 
 let mainWindow = null;
 
@@ -276,6 +278,111 @@ contextBridge.exposeInMainWorld('api', {
     }
 });
 
+// ====== 开发项目管理（通过 core store 持久化到 data/canbox-developer/store/） ======
+
+/**
+ * 获取 devApps store（黑盒式，appId=canbox-developer 自动路由）
+ */
+function getDevAppsStore() {
+    const store = require(path.join(CORE_PATH, 'lib', 'store'));
+    return store.getStore('canbox-developer', 'devApps', path.join(USERS_PATH, 'data'));
+}
+
+/**
+ * 选择 package.json 文件，解析 APP 信息，加入开发项目列表
+ */
+ipcMain.handle('developer.apps.add', async () => {
+    const result = await dialog.showOpenDialog({
+        title: '选择 APP 的 package.json',
+        filters: [{ name: 'package.json', extensions: ['json'] }],
+        properties: ['openFile']
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true };
+    }
+
+    const pkgPath = result.filePaths[0];
+    const sourceDir = path.dirname(pkgPath);
+
+    try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        const appId = pkg.name;
+        if (!appId) {
+            return { success: false, error: 'package.json 必须有 name 字段' };
+        }
+
+        const devApps = getDevAppsStore();
+        let list = devApps.get('list') || [];
+
+        // 避免重复添加
+        if (list.some(item => item.appId === appId)) {
+            return { success: false, error: '该 APP 已在开发列表中' };
+        }
+
+        const appInfo = {
+            appId,
+            name: pkg.displayName || pkg.name || appId,
+            version: pkg.version || '0.0.0',
+            description: pkg.description || '',
+            author: pkg.author || '',
+            sourceDir,
+            addedAt: Date.now()
+        };
+        list.push(appInfo);
+        devApps.set('list', list);
+
+        return { success: true, app: appInfo };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+/**
+ * 列出所有开发项目
+ */
+ipcMain.handle('developer.apps.list', async () => {
+    const devApps = getDevAppsStore();
+    return devApps.get('list') || [];
+});
+
+/**
+ * 从开发列表中移除（不删源码，只删记录）
+ */
+ipcMain.handle('developer.apps.remove', async (_e, appId) => {
+    const devApps = getDevAppsStore();
+    let list = devApps.get('list') || [];
+    list = list.filter(item => item.appId !== appId);
+    devApps.set('list', list);
+    return { success: true };
+});
+
+/**
+ * 清除 APP 运行数据（删 data/{appId}/）
+ */
+ipcMain.handle('developer.apps.clearData', async (_e, appId) => {
+    const dataDir = path.join(USERS_PATH, 'data', appId);
+    try {
+        if (fs.existsSync(dataDir)) {
+            fs.rmSync(dataDir, { recursive: true, force: true });
+        }
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+/**
+ * 打开 APP 数据目录
+ */
+ipcMain.handle('developer.apps.openDataDir', async (_e, appId) => {
+    const dataDir = path.join(USERS_PATH, 'data', appId);
+    if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+    }
+    shell.openPath(dataDir);
+    return { success: true };
+});
+
 // ====== 窗口创建 ======
 
 // 选择目录对话框
@@ -297,6 +404,7 @@ function createWindow() {
         minHeight: 600,
         title: 'Canbox Developer',
         show: false,
+        icon: path.join(__dirname, 'logo.png'),
         backgroundColor: '#f7f8fa',
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),

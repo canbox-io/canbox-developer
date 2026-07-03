@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#5B21B6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角背景 -->
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#bg)"/>
+
+  <g transform="translate(256,256)">
+    <!-- 代码括号 < > -->
+    <g fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" opacity="0.95">
+      <!-- 左括号 < -->
+      <polyline points="-30,-70 -90,0 -30,70"/>
+      <!-- 右括号 > -->
+      <polyline points="30,-70 90,0 30,70"/>
+    </g>
+
+    <!-- 中间斜杠 / （代码语义） -->
+    <line x1="15" y1="-80" x2="-15" y2="80" stroke="#A78BFA" stroke-width="18" stroke-linecap="round" opacity="0.7"/>
+
+    <!-- 底部小工具点（开发者工具语义） -->
+    <g fill="#FBBF24" opacity="0.9">
+      <circle cx="-60" cy="120" r="10"/>
+      <circle cx="0" cy="120" r="10"/>
+      <circle cx="60" cy="120" r="10"/>
+    </g>
+
+    <!-- 顶部装饰：终端光标 -->
+    <rect x="-40" y="-140" width="80" height="8" rx="4" fill="#FFFFFF" opacity="0.4"/>
+    <rect x="-40" y="-124" width="50" height="8" rx="4" fill="#FFFFFF" opacity="0.3"/>
+  </g>
+</svg>
