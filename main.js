@@ -62,7 +62,7 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
 
         const coreInjection = getCoreInjectionPath();
 
-        const args = ['-r', coreInjection, sourceDir, `--app-id=${appId}`];
+        const args = ['-r', coreInjection, sourceDir, `--app-id=${appId}`, '--no-sandbox'];
         const env = { ...process.env, NODE_ENV: 'development' };
 
         console.log('[developer] 启动 APP:');
@@ -77,6 +77,9 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
             env
         });
 
+        let launchError = null;
+        let earlyExit = false;
+
         // 转发子进程 stdout/stderr 到 developer 终端
         child.stdout.on('data', (data) => {
             console.log(`[${appId}] ${data.toString().trim()}`);
@@ -86,10 +89,23 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
         });
         child.on('error', (err) => {
             console.error(`[${appId}] 进程启动失败:`, err);
+            launchError = err;
         });
         child.on('exit', (code, signal) => {
             console.log(`[${appId}] 进程退出, code=${code}, signal=${signal}`);
+            // 如果在等待期内退出，标记为早期退出
+            earlyExit = true;
         });
+
+        // 等待 2 秒确认进程是否存活
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        if (earlyExit) {
+            return { success: false, error: `APP 进程启动后立即退出（请查看终端日志排查）` };
+        }
+        if (launchError) {
+            return { success: false, error: launchError.message };
+        }
 
         child.unref();
 
