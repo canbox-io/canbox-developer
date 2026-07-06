@@ -1,15 +1,29 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 
 const router = useRouter();
 const zoomFactor = ref(1.0);
 const coreVersion = ref('');
 
+function back() {
+    router.push('/');
+}
+
+// ESC 快捷键返回主界面
+function onKeydown(e) {
+    if (e.key === 'Escape') back();
+}
+
 onMounted(async () => {
     const result = await window.api.developer.zoomGet();
     if (result.success) zoomFactor.value = result.factor;
     coreVersion.value = await window.api.misc.getCoreVersion();
+    document.addEventListener('keydown', onKeydown);
+});
+
+onUnmounted(() => {
+    document.removeEventListener('keydown', onKeydown);
 });
 
 async function handleZoomChange(value) {
@@ -31,8 +45,8 @@ window.api.developer.onZoomChanged((factor) => {
 <template>
     <div class="settings-view">
         <header class="view-header">
-            <el-button text @click="router.push('/')">&larr; 返回</el-button>
             <h1>设置</h1>
+            <span class="close-btn" title="关闭（ESC）" @click="back">✕</span>
         </header>
         <main class="view-body">
             <!-- 通用 -->
@@ -86,14 +100,27 @@ window.api.developer.onZoomChanged((factor) => {
 .view-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: space-between;
     padding: 16px 24px;
     border-bottom: 1px solid #ebeef5;
     flex-shrink: 0;
 }
 .view-header h1 {
     margin: 0;
-    font-size: 18px;
+    font-size: 20px;
+}
+.close-btn {
+    font-size: 20px;
+    color: var(--el-text-color-placeholder);
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+.close-btn:hover {
+    color: var(--el-text-color-primary);
+    background-color: var(--el-fill-color-light);
 }
 .view-body {
     flex: 1;
@@ -105,7 +132,7 @@ window.api.developer.onZoomChanged((factor) => {
     margin-bottom: 20px;
 }
 .section-title {
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 600;
 }
 .setting-item {
@@ -124,11 +151,11 @@ window.api.developer.onZoomChanged((factor) => {
     gap: 2px;
 }
 .label-text {
-    font-size: 14px;
+    font-size: 15px;
     color: var(--el-text-color-primary);
 }
 .label-hint {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--el-text-color-placeholder);
 }
 .zoom-control {
@@ -137,9 +164,9 @@ window.api.developer.onZoomChanged((factor) => {
     gap: 8px;
 }
 .zoom-value {
-    min-width: 40px;
+    min-width: 44px;
     text-align: center;
-    font-size: 14px;
+    font-size: 15px;
     color: var(--el-text-color-primary);
 }
 .about-item {
@@ -153,7 +180,7 @@ window.api.developer.onZoomChanged((factor) => {
     border-bottom: none;
 }
 .about-value {
-    font-size: 14px;
+    font-size: 15px;
     color: var(--el-text-color-secondary);
     font-family: monospace;
 }

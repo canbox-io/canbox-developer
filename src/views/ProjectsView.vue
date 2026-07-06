@@ -116,7 +116,7 @@ onMounted(() => {
                     <div class="app-actions">
                         <el-button size="small" type="primary" @click="launchApp(app)">运行</el-button>
                         <el-button size="small" :loading="packaging[app.appId]" @click="packageApp(app)">打包</el-button>
-                        <el-button size="small" @click="openDataDir(app)">数据目录</el-button>
+                        <el-button size="small" @click="openDataDir(app)">打开数据目录</el-button>
                         <el-button size="small" @click="clearData(app)">清除数据</el-button>
                         <el-button size="small" type="danger" @click="removeApp(app)">移除</el-button>
                     </div>
@@ -142,7 +142,7 @@ onMounted(() => {
 }
 .view-header h1 {
     margin: 0;
-    font-size: 18px;
+    font-size: 20px;
 }
 .header-actions {
     display: flex;
@@ -180,7 +180,7 @@ onMounted(() => {
     gap: 8px;
 }
 .app-name {
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 600;
 }
 .app-appId {
@@ -190,7 +190,7 @@ onMounted(() => {
 }
 .app-desc {
     margin: 4px 0;
-    font-size: 13px;
+    font-size: 14px;
     color: #606266;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -198,7 +198,7 @@ onMounted(() => {
 }
 .app-path {
     margin: 4px 0 12px;
-    font-size: 12px;
+    font-size: 13px;
     color: #909399;
     font-family: monospace;
     overflow: hidden;
