@@ -103,24 +103,42 @@ onMounted(() => {
                 <el-empty description="暂无开发项目，点击右上角「添加 APP」选择 package.json" />
             </div>
             <div v-else class="app-list">
-                <el-card v-for="app in projects" :key="app.appId" class="app-card" shadow="hover">
-                    <div class="app-card-header">
-                        <div class="app-info">
+                <div v-for="app in projects" :key="app.appId" class="app-card">
+                    <!-- Logo -->
+                    <div class="logo-section">
+                        <img v-if="app.logo" :src="'file://' + app.logo" :alt="app.name" />
+                        <span v-else class="logo-placeholder">📦</span>
+                    </div>
+
+                    <!-- 信息区域 -->
+                    <div class="info-section">
+                        <div class="name-row">
                             <span class="app-name">{{ app.name }}</span>
-                            <el-tag size="small" type="info">{{ app.version }}</el-tag>
+                            <span class="app-version">{{ app.version }}</span>
                         </div>
-                        <span class="app-appId">{{ app.appId }}</span>
+                        <div class="app-desc">{{ app.description || '无描述' }}</div>
+                        <div class="app-path">{{ app.sourceDir }}</div>
+
+                        <!-- 底部操作按钮 -->
+                        <div class="app-actions">
+                            <el-tooltip content="运行" placement="top">
+                                <button class="icon-btn run-btn" @click="launchApp(app)">▶️</button>
+                            </el-tooltip>
+                            <el-tooltip content="打包" placement="top">
+                                <button class="icon-btn pack-btn" :disabled="packaging[app.appId]" @click="packageApp(app)">📦</button>
+                            </el-tooltip>
+                            <el-tooltip content="打开数据目录" placement="top">
+                                <button class="icon-btn open-data-dir-btn" @click="openDataDir(app)">📂</button>
+                            </el-tooltip>
+                            <el-tooltip content="清除数据" placement="top">
+                                <button class="icon-btn clear-btn" @click="clearData(app)">🧹</button>
+                            </el-tooltip>
+                            <el-tooltip content="移除" placement="top">
+                                <button class="icon-btn delete-btn" @click="removeApp(app)">🗑️</button>
+                            </el-tooltip>
+                        </div>
                     </div>
-                    <p class="app-desc">{{ app.description || '无描述' }}</p>
-                    <p class="app-path">{{ app.sourceDir }}</p>
-                    <div class="app-actions">
-                        <el-button size="small" type="primary" @click="launchApp(app)">运行</el-button>
-                        <el-button size="small" :loading="packaging[app.appId]" @click="packageApp(app)">打包</el-button>
-                        <el-button size="small" @click="openDataDir(app)">打开数据目录</el-button>
-                        <el-button size="small" @click="clearData(app)">清除数据</el-button>
-                        <el-button size="small" type="danger" @click="removeApp(app)">移除</el-button>
-                    </div>
-                </el-card>
+                </div>
             </div>
         </main>
     </div>
@@ -160,54 +178,126 @@ onMounted(() => {
     align-items: center;
     justify-content: center;
 }
+
+/* 卡片布局：logo 左侧 + 信息右侧 */
 .app-list {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
     gap: 16px;
 }
+
 .app-card {
+    background: #f5f7fa;
+    border-radius: 12px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    padding: 20px;
+    display: flex;
+    align-items: flex-start;
+    transition: box-shadow 0.2s;
+}
+.app-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+/* Logo */
+.logo-section {
+    flex-shrink: 0;
+}
+.logo-section img {
+    width: 72px;
+    height: 72px;
+    border-radius: 12px;
+    object-fit: cover;
+}
+.logo-placeholder {
+    width: 72px;
+    height: 72px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    background: #e9ecef;
+}
+
+/* 信息区域 */
+.info-section {
+    flex: 1;
+    margin-left: 16px;
     min-width: 0;
-}
-.app-card-header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
+    flex-direction: column;
 }
-.app-info {
+.name-row {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    align-items: baseline;
+    gap: 10px;
 }
 .app-name {
-    font-size: 17px;
+    font-size: 19px;
     font-weight: 600;
+    color: #303133;
 }
-.app-appId {
-    font-size: 12px;
-    color: #909399;
-    font-family: monospace;
+.app-version {
+    color: #606266;
+    font-size: 15px;
 }
 .app-desc {
-    margin: 4px 0;
-    font-size: 14px;
-    color: #606266;
+    color: #303133;
+    font-size: 16px;
+    margin-top: 6px;
+    line-height: 1.5;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .app-path {
-    margin: 4px 0 12px;
-    font-size: 13px;
     color: #909399;
+    font-size: 13px;
+    margin-top: 4px;
     font-family: monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* 操作按钮 */
 .app-actions {
     display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
 }
+
+.icon-btn {
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: #ebeff5;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    padding: 0;
+    line-height: 1;
+}
+.icon-btn:hover {
+    background: #dde3eb;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+.icon-btn:active {
+    transform: translateY(0);
+}
+.icon-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+.run-btn:hover { background: #e8f5e9; }
+.pack-btn:hover { background: #e3f2fd; }
+.open-data-dir-btn:hover { background: #e0f2f1; }
+.clear-btn:hover { background: #fff3e0; }
+.delete-btn:hover { background: #ffebee; }
 </style>

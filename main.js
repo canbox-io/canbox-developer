@@ -327,6 +327,11 @@ ipcMain.handle('developer.apps.add', async () => {
             return { success: false, error: '该 APP 已在开发列表中' };
         }
 
+        // 读取 logo 路径（package.json 的 logo 字段或默认 logo.png）
+        const logoFile = pkg.logo || 'logo.png';
+        const logoPath = path.join(sourceDir, logoFile);
+        const hasLogo = fs.existsSync(logoPath);
+
         const appInfo = {
             appId,
             name: pkg.displayName || pkg.name || appId,
@@ -334,6 +339,7 @@ ipcMain.handle('developer.apps.add', async () => {
             description: pkg.description || '',
             author: pkg.author || '',
             sourceDir,
+            logo: hasLogo ? logoPath : '',
             addedAt: Date.now()
         };
         list.push(appInfo);
