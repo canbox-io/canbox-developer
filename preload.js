@@ -59,6 +59,14 @@ const api = {
         // 打开 APP 数据目录
         openDataDir: (appId) => ipcRenderer.invoke('developer.apps.openDataDir', appId),
 
+        // 缩放
+        zoomGet: () => ipcRenderer.invoke('developer.zoom.get'),
+        zoomSet: (factor) => ipcRenderer.invoke('developer.zoom.set', factor),
+        zoomReset: () => ipcRenderer.invoke('developer.zoom.reset'),
+        onZoomChanged: (callback) => {
+            ipcRenderer.on('developer:zoomChanged', (_e, factor) => callback(factor));
+        },
+
         // Vue 挂载完成通知
         appReady: () => ipcRenderer.invoke('developer.appReady')
     }

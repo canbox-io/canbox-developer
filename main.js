@@ -289,6 +289,14 @@ function getDevAppsStore() {
 }
 
 /**
+ * 获取 developer settings store（黑盒式，appId=canbox-developer 自动路由）
+ */
+function getSettingsStore() {
+    const store = require(path.join(CORE_PATH, 'lib', 'store'));
+    return store.getStore('canbox-developer', 'settings', path.join(USERS_PATH, 'data'));
+}
+
+/**
  * 选择 package.json 文件，解析 APP 信息，加入开发项目列表
  */
 ipcMain.handle('developer.apps.add', async () => {
@@ -383,6 +391,37 @@ ipcMain.handle('developer.apps.openDataDir', async (_e, appId) => {
     return { success: true };
 });
 
+// ====== 缩放 ======
+
+ipcMain.handle('developer.zoom.get', async () => {
+    return { success: true, factor: getSettingsStore().get('zoomFactor') || 1.0 };
+});
+
+ipcMain.handle('developer.zoom.set', async (_e, factor) => {
+    const clamped = Math.max(0.5, Math.min(2.0, Math.round(factor * 10) / 10));
+    getSettingsStore().set('zoomFactor', clamped);
+
+    BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) {
+            win.webContents.setZoomFactor(clamped);
+            win.webContents.send('developer:zoomChanged', clamped);
+        }
+    });
+    return { success: true, factor: clamped };
+});
+
+ipcMain.handle('developer.zoom.reset', async () => {
+    getSettingsStore().set('zoomFactor', 1.0);
+
+    BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) {
+            win.webContents.setZoomFactor(1.0);
+            win.webContents.send('developer:zoomChanged', 1.0);
+        }
+    });
+    return { success: true, factor: 1.0 };
+});
+
 // ====== 窗口创建 ======
 
 // 选择目录对话框
@@ -421,6 +460,19 @@ function createWindow() {
     } else {
         mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
     }
+
+    // 应用保存的缩放比例（dom-ready 后设置，避免闪烁）
+    mainWindow.webContents.on('dom-ready', () => {
+        try {
+            const zoomFactor = getSettingsStore().get('zoomFactor') || 1.0;
+            if (zoomFactor !== 1.0) {
+                mainWindow.webContents.setZoomFactor(zoomFactor);
+                console.log(`[startup] Applied zoom factor: ${zoomFactor}`);
+            }
+        } catch (e) {
+            // 忽略
+        }
+    });
 }
 
 ipcMain.handle('developer.appReady', () => {

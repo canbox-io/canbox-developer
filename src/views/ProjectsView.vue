@@ -1,7 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
+const router = useRouter();
 const projects = ref([]);
 const packaging = ref({});
 
@@ -89,7 +91,12 @@ onMounted(() => {
     <div class="projects-view">
         <header class="view-header">
             <h1>开发项目</h1>
-            <el-button type="primary" @click="addApp">添加 APP</el-button>
+            <div class="header-actions">
+                <el-button type="primary" @click="addApp">添加 APP</el-button>
+                <el-button circle @click="router.push('/settings')" title="设置">
+                    <span style="font-size: 18px;">⚙</span>
+                </el-button>
+            </div>
         </header>
         <main class="view-body">
             <div v-if="projects.length === 0" class="empty-state">
@@ -136,6 +143,11 @@ onMounted(() => {
 .view-header h1 {
     margin: 0;
     font-size: 18px;
+}
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 .view-body {
     flex: 1;

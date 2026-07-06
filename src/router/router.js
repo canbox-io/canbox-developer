@@ -6,6 +6,11 @@ const router = createRouter({
             path: '/',
             name: 'projects',
             component: () => import('../views/ProjectsView.vue')
+        },
+        {
+            path: '/settings',
+            name: 'settings',
+            component: () => import('../views/SettingsView.vue')
         }
     ],
     history: createWebHashHistory()
