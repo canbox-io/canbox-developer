@@ -127,9 +127,9 @@ onMounted(() => {
                         <div class="name-row">
                             <span class="app-name">{{ app.name }}</span>
                             <span class="app-version">{{ app.version }}</span>
-                            <!-- 平台图标靠右 -->
-                            <span v-if="app.platforms && app.platforms.length > 0" class="platforms">
-                                <el-tooltip v-for="p in app.platforms" :key="p" :content="PLATFORM_NAMES[p] || p" placement="top">
+                            <!-- 平台图标靠右，无 platforms 则默认全平台 -->
+                            <span class="platforms">
+                                <el-tooltip v-for="p in (app.platforms && app.platforms.length > 0 ? app.platforms : ['windows', 'darwin', 'linux'])" :key="p" :content="PLATFORM_NAMES[p] || p" placement="top">
                                     <span class="platform-icon" v-html="PLATFORM_ICONS_SVG[p] || ''"></span>
                                 </el-tooltip>
                             </span>

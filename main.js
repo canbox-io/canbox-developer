@@ -28,14 +28,12 @@ let mainWindow = null;
 
 /**
  * 获取 canbox-core 的 injection.js 路径
- * 从 {Users}/canbox.json 的 core.injectionPath 读取
+ * 直接从全局变量读取（injection.js 启动时挂载）
  */
 function getCoreInjectionPath() {
-    const Store = require('electron-store');
-    const coreStore = new Store({ cwd: USERS_PATH, name: 'canbox' });
-    const corePath = coreStore.get('core.injectionPath');
+    const corePath = global.__CANBOX_CORE_PATH__;
     if (!corePath) {
-        throw new Error('canbox-core path not found in canbox.json');
+        throw new Error('canbox-core path not found (global.__CANBOX_CORE_PATH__ not set)');
     }
     return path.join(corePath, 'injection.js');
 }
@@ -297,7 +295,38 @@ function getSettingsStore() {
 }
 
 /**
- * 选择 package.json 文件，解析 APP 信息，加入开发项目列表
+ * 从 package.json 实时读取 APP 元数据
+ * store 只存结构性数据（appId/sourceDir/addedAt），元数据每次实时读
+ * @param {string} sourceDir - APP 源码目录
+ * @returns {object|null} 合并后的 app 信息，源码目录无效返回 null
+ */
+function readAppInfo(sourceDir) {
+    const pkgPath = path.join(sourceDir, 'package.json');
+    if (!fs.existsSync(pkgPath)) return null;
+
+    let pkg;
+    try {
+        pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    } catch (e) {
+        return null;
+    }
+
+    return {
+        appId: pkg.name,
+        name: pkg.displayName || pkg.name || pkg.name,
+        version: pkg.version || '0.0.0',
+        description: pkg.description || '',
+        author: pkg.author || '',
+        sourceDir,
+        logo: detectLogo(sourceDir, pkg),
+        keywords: pkg.keywords || [],
+        platforms: pkg.platforms || [],
+    };
+}
+
+/**
+ * 选择 package.json 文件，加入开发项目列表
+ * store 只存 {appId, sourceDir, addedAt}，元数据 list 时实时读
  */
 ipcMain.handle('developer.apps.add', async () => {
     const result = await dialog.showOpenDialog({
@@ -313,9 +342,11 @@ ipcMain.handle('developer.apps.add', async () => {
     const sourceDir = path.dirname(pkgPath);
 
     try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        const appId = pkg.name;
-        if (!appId) {
+        const info = readAppInfo(sourceDir);
+        if (!info) {
+            return { success: false, error: '无法读取 package.json' };
+        }
+        if (!info.appId) {
             return { success: false, error: 'package.json 必须有 name 字段' };
         }
 
@@ -323,29 +354,21 @@ ipcMain.handle('developer.apps.add', async () => {
         let list = devApps.get('list') || [];
 
         // 避免重复添加
-        if (list.some(item => item.appId === appId)) {
+        if (list.some(item => item.appId === info.appId)) {
             return { success: false, error: '该 APP 已在开发列表中' };
         }
 
-        // logo 读取：package.json 的 logo 字段 → 自动探测常见图标文件
-        const logoPath = detectLogo(sourceDir, pkg);
-
-        const appInfo = {
-            appId,
-            name: pkg.displayName || pkg.name || appId,
-            version: pkg.version || '0.0.0',
-            description: pkg.description || '',
-            author: pkg.author || '',
+        // 只存结构性数据
+        const record = {
+            appId: info.appId,
             sourceDir,
-            logo: logoPath,
-            keywords: pkg.keywords || [],
-            platforms: pkg.platforms || [],
             addedAt: Date.now()
         };
-        list.push(appInfo);
+        list.push(record);
         devApps.set('list', list);
 
-        return { success: true, app: appInfo };
+        // 返回时合并元数据
+        return { success: true, app: { ...record, ...info } };
     } catch (e) {
         return { success: false, error: e.message };
     }
@@ -381,37 +404,24 @@ function detectLogo(sourceDir, pkg) {
 
 /**
  * 列出所有开发项目
- * 对旧数据（缺少 logo/keywords/platforms 字段）做补探测
+ * 从 store 读结构性数据（appId/sourceDir/addedAt），实时从 package.json 读元数据
  */
 ipcMain.handle('developer.apps.list', async () => {
     const devApps = getDevAppsStore();
     const list = devApps.get('list') || [];
 
-    let needUpdate = false;
-    for (const app of list) {
-        // 补探测 logo（旧数据可能是文件路径而非 data URI，或为空）
-        if (!app.logo || !app.logo.startsWith('data:')) {
-            let pkg = null;
-            try {
-                pkg = JSON.parse(fs.readFileSync(path.join(app.sourceDir, 'package.json'), 'utf-8'));
-            } catch (e) {
-                // 源码目录可能已删除
-            }
-            if (pkg) {
-                app.logo = detectLogo(app.sourceDir, pkg);
-                app.keywords = app.keywords || pkg.keywords || [];
-                app.platforms = app.platforms || pkg.platforms || [];
-                needUpdate = true;
-            }
+    const result = [];
+    for (const record of list) {
+        const info = readAppInfo(record.sourceDir);
+        if (info) {
+            result.push({ ...record, ...info });
+        } else {
+            // 源码目录无效，保留结构性数据（前端可提示）
+            result.push({ ...record, name: record.appId, version: '', description: '', author: '', logo: '', keywords: [], platforms: [] });
         }
     }
 
-    // 有补全的数据写回 store
-    if (needUpdate) {
-        devApps.set('list', list);
-    }
-
-    return list;
+    return result;
 });
 
 /**
