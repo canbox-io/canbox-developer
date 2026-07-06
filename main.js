@@ -327,10 +327,8 @@ ipcMain.handle('developer.apps.add', async () => {
             return { success: false, error: '该 APP 已在开发列表中' };
         }
 
-        // 读取 logo 路径（package.json 的 logo 字段或默认 logo.png）
-        const logoFile = pkg.logo || 'logo.png';
-        const logoPath = path.join(sourceDir, logoFile);
-        const hasLogo = fs.existsSync(logoPath);
+        // logo 读取：package.json 的 logo 字段 → 自动探测常见图标文件
+        const logoPath = detectLogo(sourceDir, pkg);
 
         const appInfo = {
             appId,
@@ -339,7 +337,9 @@ ipcMain.handle('developer.apps.add', async () => {
             description: pkg.description || '',
             author: pkg.author || '',
             sourceDir,
-            logo: hasLogo ? logoPath : '',
+            logo: logoPath,
+            keywords: pkg.keywords || [],
+            platforms: pkg.platforms || [],
             addedAt: Date.now()
         };
         list.push(appInfo);
@@ -352,11 +352,66 @@ ipcMain.handle('developer.apps.add', async () => {
 });
 
 /**
+ * 探测 APP 的 logo 并读取为 base64 data URI
+ * 优先 package.json 的 logo 字段，其次自动探测常见图标文件
+ * @param {string} sourceDir - APP 源码目录
+ * @param {object} pkg - package.json 内容
+ * @returns {string} logo 的 data URI，找不到返回空字符串
+ */
+function detectLogo(sourceDir, pkg) {
+    const logoCandidates = pkg && pkg.logo
+        ? [pkg.logo]
+        : ['logo.png', 'logo.svg', 'icon.png', 'favicon.png', 'logo.jpg'];
+    for (const candidate of logoCandidates) {
+        const candidatePath = path.join(sourceDir, candidate);
+        if (fs.existsSync(candidatePath)) {
+            try {
+                const ext = path.extname(candidate).slice(1).toLowerCase();
+                const mimeMap = { png: 'image/png', svg: 'image/svg+xml', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif' };
+                const mime = mimeMap[ext] || 'image/png';
+                const buf = fs.readFileSync(candidatePath);
+                return `data:${mime};base64,${buf.toString('base64')}`;
+            } catch (e) {
+                // 读取失败，继续尝试下一个
+            }
+        }
+    }
+    return '';
+}
+
+/**
  * 列出所有开发项目
+ * 对旧数据（缺少 logo/keywords/platforms 字段）做补探测
  */
 ipcMain.handle('developer.apps.list', async () => {
     const devApps = getDevAppsStore();
-    return devApps.get('list') || [];
+    const list = devApps.get('list') || [];
+
+    let needUpdate = false;
+    for (const app of list) {
+        // 补探测 logo（旧数据可能是文件路径而非 data URI，或为空）
+        if (!app.logo || !app.logo.startsWith('data:')) {
+            let pkg = null;
+            try {
+                pkg = JSON.parse(fs.readFileSync(path.join(app.sourceDir, 'package.json'), 'utf-8'));
+            } catch (e) {
+                // 源码目录可能已删除
+            }
+            if (pkg) {
+                app.logo = detectLogo(app.sourceDir, pkg);
+                app.keywords = app.keywords || pkg.keywords || [];
+                app.platforms = app.platforms || pkg.platforms || [];
+                needUpdate = true;
+            }
+        }
+    }
+
+    // 有补全的数据写回 store
+    if (needUpdate) {
+        devApps.set('list', list);
+    }
+
+    return list;
 });
 
 /**
