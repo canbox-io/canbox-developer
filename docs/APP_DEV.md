@@ -259,15 +259,54 @@ const version = await window.api.misc.getCoreVersion();
 
 ## 调试与发布
 
-### 调试启动
+### 调试启动流程
 
-通过 canbox-developer 添加 APP（选择 package.json），然后点击运行按钮。canbox-developer 会执行：
+**重要：canbox-developer 启动 APP 时会设置 `NODE_ENV=development` 环境变量，APP 的 main.js 必须检查此变量来决定加载方式。**
 
-```bash
-electron -r {canbox-core}/injection.js {sourceDir}/ --app-id={appId}
+完整流程：
+
+1. 开发者先在 APP 项目目录跑 dev server（如 `npm run dev`，启动 Vite/webpack 等）
+2. 在 canbox-developer 中添加 APP（选择 package.json）
+3. 点击「运行」按钮，canbox-developer 执行：
+   ```bash
+   electron -r {canbox-core}/injection.js {sourceDir}/ --app-id={appId}
+   # 环境变量：NODE_ENV=development
+   ```
+4. APP 的 main.js 检测到 `NODE_ENV=development`，loadURL 到 dev server
+
+### main.js 开发模式约定
+
+APP 的 main.js **必须**检查 `process.env.NODE_ENV` 来区分开发/生产模式：
+
+```javascript
+function createWindow() {
+    mainWindow = new BrowserWindow({
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: false
+        }
+    });
+
+    const isDev = process.env.NODE_ENV === 'development';
+    if (isDev) {
+        // 开发模式：加载 dev server（端口由 APP 自己决定，各框架有默认值）
+        mainWindow.loadURL('http://localhost:5173');
+        mainWindow.webContents.openDevTools({ mode: 'detach' });
+    } else {
+        // 生产模式：加载构建产物
+        mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
+    }
+}
 ```
 
-开发中的 APP 不安装到 `{Users}/apps/`，直接从源码目录启动。
+**关键说明：**
+
+- **dev server 端口由 APP 自己管理**：Vite 默认 5173、webpack 默认 8080，canbox-developer 不关心端口，APP 自己知道
+- **开发者必须先跑 dev server**：canbox-developer 只负责启动 Electron，不负责启动 dev server。如果没跑 dev server，`loadURL` 会失败、窗口空白
+- **canbox-developer 不假设开发框架**：不管用 Vite、webpack 还是其他，只要 main.js 遵循 `NODE_ENV` 约定即可
+- **子进程日志转发**：canbox-developer 会将 APP 进程的 stdout/stderr 转发到 developer 的终端，方便排查问题
 
 ### 打包发布
 
@@ -281,11 +320,12 @@ electron -r {canbox-core}/injection.js {sourceDir}/ --app-id={appId}
 ### 启动命令
 
 ```bash
-# 开发模式（需同时跑 vite dev server）
-npm run dev      # Vite dev server
+# 开发模式（手动启动，需先跑 dev server）
+npm run dev      # 启动 Vite/webpack dev server
 npm run start    # electron -r canbox-core/injection.js . --app-id={appId}
+                 # （需手动设 NODE_ENV=development，或从 developer 启动自动设置）
 
 # 生产模式
-npm run build    # Vite 构建
+npm run build    # Vite/webpack 构建
 electron -r canbox-core/injection.js {APP}/ --app-id={appId}
 ```

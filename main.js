@@ -62,18 +62,40 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
 
         const coreInjection = getCoreInjectionPath();
 
-        const child = spawn(process.execPath, [
-            '-r', coreInjection,
-            sourceDir,
-            `--app-id=${appId}`
-        ], {
+        const args = ['-r', coreInjection, sourceDir, `--app-id=${appId}`];
+        const env = { ...process.env, NODE_ENV: 'development' };
+
+        console.log('[developer] 启动 APP:');
+        console.log('[developer]   execPath:', process.execPath);
+        console.log('[developer]   args:', JSON.stringify(args));
+        console.log('[developer]   NODE_ENV:', env.NODE_ENV);
+        console.log('[developer]   appId:', appId);
+
+        const child = spawn(process.execPath, args, {
             detached: true,
-            stdio: 'ignore'
+            stdio: ['ignore', 'pipe', 'pipe'],
+            env
         });
+
+        // 转发子进程 stdout/stderr 到 developer 终端
+        child.stdout.on('data', (data) => {
+            console.log(`[${appId}] ${data.toString().trim()}`);
+        });
+        child.stderr.on('data', (data) => {
+            console.error(`[${appId}] ${data.toString().trim()}`);
+        });
+        child.on('error', (err) => {
+            console.error(`[${appId}] 进程启动失败:`, err);
+        });
+        child.on('exit', (code, signal) => {
+            console.log(`[${appId}] 进程退出, code=${code}, signal=${signal}`);
+        });
+
         child.unref();
 
         return { success: true, appId };
     } catch (e) {
+        console.error('[developer] 启动异常:', e);
         return { success: false, error: e.message };
     }
 });
