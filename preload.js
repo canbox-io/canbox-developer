@@ -50,8 +50,8 @@ const api = {
         // 启动源码目录中的 APP 进行调试
         launchApp: (sourceDir) => ipcRenderer.invoke('developer.apps.launch', sourceDir),
 
-        // 打包 APP 源码目录为 zip
-        packageApp: (sourceDir, outputPath) => ipcRenderer.invoke('developer.apps.package', sourceDir, outputPath),
+        // 发布 APP（选构建产物目录，压标准 zip）
+        publishApp: (sourceDir) => ipcRenderer.invoke('developer.apps.publish', sourceDir),
 
         // 清除 APP 运行数据
         clearData: (appId) => ipcRenderer.invoke('developer.apps.clearData', appId),

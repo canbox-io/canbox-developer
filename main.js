@@ -117,47 +117,95 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
 });
 
 /**
- * 打包 APP 源码目录为 zip
- * @param {string} sourceDir - APP 源码目录
- * @param {string} outputPath - 输出 zip 路径（可选，默认源码目录同级的 {name}-{version}.zip）
+ * 发布 APP：选择 electron-builder 构建产物目录（resources/），按 canbox 标准结构压 zip
+ * zip 结构：app.asar + app.asar.unpacked/(可选) + package.json + logo.png
+ * @param {string} sourceDir - APP 源码目录（读取 package.json 和 logo）
  * @returns {Promise<{success: boolean, path?: string, error?: string}>}
  */
-ipcMain.handle('developer.apps.package', async (_e, sourceDir, outputPath) => {
-    if (!fs.existsSync(sourceDir)) {
-        return { success: false, error: 'Source directory not found' };
+ipcMain.handle('developer.apps.publish', async (_e, sourceDir) => {
+    // 弹出目录选择对话框，选 electron-builder 产物目录
+    const result = await dialog.showOpenDialog({
+        title: '选择 electron-builder 构建产物目录（通常为 dist/xxx-unpacked/resources/）',
+        properties: ['openDirectory']
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true };
     }
 
+    const resourcesDir = result.filePaths[0];
+
+    // 检查 app.asar 存在
+    const asarPath = path.join(resourcesDir, 'app.asar');
+    if (!fs.existsSync(asarPath)) {
+        return { success: false, error: '所选目录中未找到 app.asar，请确认选择的是 electron-builder 的 resources/ 目录' };
+    }
+
+    // 检查 app.asar.unpacked 是否存在（判断有无原生模块）
+    const unpackedPath = path.join(resourcesDir, 'app.asar.unpacked');
+    const hasUnpacked = fs.existsSync(unpackedPath);
+
+    // 从源码目录读 package.json
     const pkgPath = path.join(sourceDir, 'package.json');
     if (!fs.existsSync(pkgPath)) {
-        return { success: false, error: 'package.json not found in source directory' };
+        return { success: false, error: '源码目录中未找到 package.json' };
     }
 
     try {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        const zipName = `${pkg.name}-${pkg.version || '0.0.0'}.zip`;
-        const zipPath = outputPath || path.join(path.dirname(sourceDir), zipName);
+        const appIdentifier = pkg.id || pkg.name;
+        const version = pkg.version || '0.0.0';
+
+        // 推断平台（从 resources 父目录名，如 linux-x64-unpacked）
+        let platformSuffix = '';
+        if (hasUnpacked) {
+            const parentName = path.basename(path.dirname(resourcesDir));
+            const match = parentName.match(/^(.+)-unpacked$/);
+            if (match) {
+                platformSuffix = `-${match[1]}`;
+            }
+        }
+
+        const zipName = `${appIdentifier}-${version}${platformSuffix}.zip`;
+        const zipPath = path.join(path.dirname(sourceDir), zipName);
 
         const AdmZip = require('adm-zip');
         const zip = new AdmZip();
 
-        // 排除的目录/文件
-        const excludePatterns = ['node_modules', '.git', 'build', '.vscode', '.canbox-app'];
+        // 1. app.asar
+        zip.addLocalFile(asarPath, '');
 
-        function addDirToZip(dirPath, zipPath) {
-            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-            for (const entry of entries) {
-                if (excludePatterns.includes(entry.name)) continue;
-                const fullPath = path.join(dirPath, entry.name);
-                const entryZipPath = zipPath ? `${zipPath}/${entry.name}` : entry.name;
-                if (entry.isDirectory()) {
-                    addDirToZip(fullPath, entryZipPath);
-                } else {
-                    zip.addLocalFile(fullPath, zipPath);
+        // 2. app.asar.unpacked/（如有）
+        if (hasUnpacked) {
+            function addDirToZip(dirPath, zipPath) {
+                const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dirPath, entry.name);
+                    const entryZipPath = zipPath ? `${zipPath}/${entry.name}` : entry.name;
+                    if (entry.isDirectory()) {
+                        addDirToZip(fullPath, entryZipPath);
+                    } else {
+                        zip.addLocalFile(fullPath, zipPath);
+                    }
                 }
+            }
+            addDirToZip(unpackedPath, 'app.asar.unpacked');
+        }
+
+        // 3. package.json（从源码目录）
+        zip.addLocalFile(pkgPath, '');
+
+        // 4. logo.png（从源码目录自动探测）
+        const logoCandidates = pkg.logo
+            ? [pkg.logo]
+            : ['logo.png', 'logo.svg', 'icon.png', 'favicon.png'];
+        for (const candidate of logoCandidates) {
+            const logoFile = path.join(sourceDir, candidate);
+            if (fs.existsSync(logoFile)) {
+                zip.addLocalFile(logoFile, '');
+                break;
             }
         }
 
-        addDirToZip(sourceDir, '');
         zip.writeZip(zipPath);
 
         return { success: true, path: zipPath };

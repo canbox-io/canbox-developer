@@ -6,10 +6,22 @@
 
 Canbox APP 是一个标准的 Electron 应用，无任何强制性框架约束。它可以：
 
-- **canbox 模式运行**：`electron -r canbox-core/injection.js {APP}/ --app-id={appId}`，自动获得 canbox 环境（统一数据目录、store/db 等公共服务）
+- **canbox 模式运行**：`electron -r canbox-core/injection.js {APP}/ --app-id={appId} --no-sandbox`，自动获得 canbox 环境（统一数据目录、store/db 等公共服务）
 - **独立运行**：`electron {APP}/`，用自己的 Electron 二进制，不共享 canbox 环境
 
 两种方式下 APP 代码完全相同，无需条件编译。
+
+## 关键概念：id、name、appId
+
+| 字段 | 来源 | 格式 | 用途 | 示例 |
+|------|------|------|------|------|
+| `id` | package.json 的 `id` 字段（可选，无则用 `name`） | 反向域名 | APP 全局唯一标识，人类可读，用于 repo 搜索/显示/zip 文件名 | `com.gitee.lizl6.cb-jsonbox` |
+| `name` | package.json 的 `name` 字段 | npm 包名 | npm 标准字段，调试时作 appId | `cb-jsonbox` |
+| `appId` | canbox 安装时自动生成 | 随机 8 位串 | canbox 内部标识，文件系统目录名、`--app-id` 参数、数据隔离路由 | `a1b2c3d4` |
+
+- **调试时**：developer 用 `name` 作 appId（`--app-id=cb-jsonbox`），因为没有安装过程
+- **安装后**：manager 生成随机 appId（`--app-id=a1b2c3d4`），数据路由到 `data/a1b2c3d4/`
+- 调试数据和安装数据天然隔离（不同 appId → 不同 data 目录）
 
 ## 项目结构
 
@@ -46,11 +58,14 @@ function createWindow() {
         }
     });
 
+    // canbox-developer 启动时自动设 NODE_ENV=development
     const isDev = process.env.NODE_ENV === 'development';
     if (isDev) {
+        // 开发模式：加载 dev server（端口由 APP 自己决定）
         mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools({ mode: 'detach' });
     } else {
+        // 生产模式：加载构建产物
         mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
     }
 }
@@ -73,6 +88,7 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 ```json
 {
     "name": "cb-jsonbox",
+    "id": "com.gitee.lizl6.cb-jsonbox",
     "version": "0.0.3",
     "main": "main.js",
     "description": "JsonBox - 跨平台的 JSON 格式化工具",
@@ -86,16 +102,17 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 
 ### 字段说明
 
-| 字段            | 必需 | 类型     | 说明                                                                 |
-| --------------- | ---- | -------- | -------------------------------------------------------------------- |
-| `name`        | 是   | string   | APP 唯一标识，用作 appId 和数据隔离目录名                            |
-| `main`        | 是   | string   | 主进程入口 JS 文件                                                   |
-| `version`     | 是   | string   | 版本号                                                               |
-| `description` | 否   | string   | APP 描述，显示在卡片和列表中                                         |
-| `author`      | 否   | string   | 作者                                                                 |
-| `logo`        | 否   | string   | 图标文件路径（相对 APP 根目录）。不配时自动探测                      |
-| `keywords`    | 否   | string[] | 标准 npm 字段，兼做分类标签和搜索关键词                              |
-| `platforms`   | 否   | string[] | 支持的平台，可选值`windows`/`darwin`/`linux`。不配则默认全平台 |
+| 字段 | 必需 | 类型 | 说明 |
+|------|------|------|------|
+| `name` | 是 | string | npm 标准字段，包名。调试时作 appId |
+| `id` | 否 | string | Canbox 约定，APP 全局唯一标识（反向域名格式）。无则用 `name`。用于 zip 文件名和 repo 搜索 |
+| `main` | 是 | string | 主进程入口 JS 文件 |
+| `version` | 是 | string | 版本号 |
+| `description` | 否 | string | APP 描述 |
+| `author` | 否 | string | 作者 |
+| `logo` | 否 | string | 图标文件路径（相对 APP 根目录）。不配时自动探测 |
+| `keywords` | 否 | string[] | 标准 npm 字段，兼做分类标签和搜索关键词 |
+| `platforms` | 否 | string[] | 支持的平台，可选值 `windows`/`darwin`/`linux`。不配则默认全平台 |
 
 ### logo 自动探测
 
@@ -116,15 +133,11 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 - **分类**：如 `development`、`utility`、`graphics` 等，用于仓库分类筛选
 - **标签/搜索**：如 `json`、`formatter`，用于仓库搜索
 
+无需单独的 `categories` 或 `tags` 字段，统一用 `keywords`。
+
 ### platforms 用途
 
-`platforms` 声明 APP 支持的操作系统。canbox-developer 和 canbox-manager 在卡片上显示对应平台图标：
-
-- `windows` → 🪟
-- `darwin` → 🍎
-- `linux` → 🐧
-
-不配置 `platforms` 则默认全平台支持，显示通用图标。
+`platforms` 声明 APP 支持的操作系统。不配置则默认全平台支持。
 
 ## canbox-core API
 
@@ -165,6 +178,7 @@ contextBridge.exposeInMainWorld('api', {
         openUrl: (url) => ipcRenderer.invoke('canbox.misc.openUrl', url),
         getUserData: () => ipcRenderer.invoke('canbox.misc.getUserData'),
         getCoreVersion: () => ipcRenderer.invoke('canbox.misc.getCoreVersion'),
+        getCorePath: () => ipcRenderer.invoke('canbox.misc.getCorePath'),
         getPlatformInfo: () => ipcRenderer.invoke('canbox.misc.getPlatformInfo'),
         showItemInFolder: (filePath) => ipcRenderer.invoke('canbox.misc.showItemInFolder', filePath),
         openPath: (filePath) => ipcRenderer.invoke('canbox.misc.openPath', filePath)
@@ -177,85 +191,34 @@ contextBridge.exposeInMainWorld('api', {
 存储到 `{Users}/data/{appId}/store/{name}.json`，按 appId 物理隔离。
 
 ```javascript
-// 存
 await window.api.store.set('settings', 'theme', 'dark');
-// 取
 const theme = await window.api.store.get('settings', 'theme');
-// 删
 await window.api.store.delete('settings', 'theme');
-// 清空指定 store
 await window.api.store.clear('settings');
 ```
-
-- `name`：存储名称（文件名），同一 APP 可有多份 store
-- `key`：存储的键
-- appId 由 core 自动注入，APP 不传
 
 ### db — 文档数据库
 
 存储到 `{Users}/data/{appId}/db/`，按 appId 物理隔离。
 
 ```javascript
-// 插入/更新
 await window.api.db.put({ _id: 'doc1', name: 'test' });
-// 获取
 const doc = await window.api.db.get('doc1');
-// 查询
 const result = await window.api.db.find({ selector: { type: 'item' } });
-// 获取全部
-const all = await window.api.db.allDocs({ include_docs: true });
-// 批量写入
-await window.api.db.bulkDocs([{ _id: 'a' }, { _id: 'b' }]);
-// 删除
-await window.api.db.remove(doc);
-// 创建索引
-await window.api.db.createIndex({ index: { fields: ['type'] } });
-```
-
-### dialog — 原生对话框
-
-```javascript
-const result = await window.api.dialog.showOpenDialog({
-    properties: ['openFile'],
-    filters: [{ name: 'Images', extensions: ['png', 'jpg'] }]
-});
-```
-
-### window — 窗口管理
-
-```javascript
-// 系统通知
-await window.api.window.notification({ title: '完成', body: '操作成功' });
-// 创建新窗口
-await window.api.window.createWindow({ width: 400, height: 300 });
-```
-
-### misc — 杂项
-
-```javascript
-await window.api.misc.openUrl('https://example.com');
-const userDataPath = await window.api.misc.getUserData();
-const version = await window.api.misc.getCoreVersion();
 ```
 
 ## 数据目录结构
 
-所有通过 canbox-core 启动的 APP 共享同一数据目录：
-
 ```
 {Users}/
-├── apps/{appId}/                  # 已安装 APP
+├── apps/{appId}/                  # 已安装 APP（内含 app.asar + package.json + logo）
 ├── data/{appId}/
-│   ├── store/{name}.json         # 当前 APP 的键值存储（物理隔离）
-│   └── db/                       # 当前 APP 的文档数据库（物理隔离）
+│   ├── store/{name}.json         # APP 键值存储（物理隔离）
+│   └── db/                       # APP 文档数据库（物理隔离）
 ├── db/{history,fileTask}/         # 平台级数据库
 ├── repos/                         # 仓库
 └── logs/canbox.log                # 统一日志
 ```
-
-**数据隔离**：每个 APP 的数据存到 `data/{appId}/`，互不干扰。删除 APP 清数据即删除 `data/{appId}/` 目录。
-
-**黑盒模型**：APP 调用 store/db 时不传 appId，core 通过 `--app-id` 参数自动路由。
 
 ## 调试与发布
 
@@ -263,69 +226,45 @@ const version = await window.api.misc.getCoreVersion();
 
 **重要：canbox-developer 启动 APP 时会设置 `NODE_ENV=development` 环境变量，APP 的 main.js 必须检查此变量来决定加载方式。**
 
-完整流程：
-
-1. 开发者先在 APP 项目目录跑 dev server（如 `npm run dev`，启动 Vite/webpack 等）
+1. 开发者先在 APP 项目目录跑 dev server（如 `npm run dev`）
 2. 在 canbox-developer 中添加 APP（选择 package.json）
 3. 点击「运行」按钮，canbox-developer 执行：
    ```bash
-   electron -r {canbox-core}/injection.js {sourceDir}/ --app-id={appId}
+   electron -r {canbox-core}/injection.js {sourceDir}/ --app-id={name} --no-sandbox
    # 环境变量：NODE_ENV=development
    ```
 4. APP 的 main.js 检测到 `NODE_ENV=development`，loadURL 到 dev server
 
-### main.js 开发模式约定
-
-APP 的 main.js **必须**检查 `process.env.NODE_ENV` 来区分开发/生产模式：
-
-```javascript
-function createWindow() {
-    mainWindow = new BrowserWindow({
-        webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: false
-        }
-    });
-
-    const isDev = process.env.NODE_ENV === 'development';
-    if (isDev) {
-        // 开发模式：加载 dev server（端口由 APP 自己决定，各框架有默认值）
-        mainWindow.loadURL('http://localhost:5173');
-        mainWindow.webContents.openDevTools({ mode: 'detach' });
-    } else {
-        // 生产模式：加载构建产物
-        mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
-    }
-}
-```
-
 **关键说明：**
+- dev server 端口由 APP 自己管理（Vite 默认 5173、webpack 默认 8080）
+- 开发者必须先跑 dev server，再从 developer 点运行
+- canbox-developer 不假设开发框架
 
-- **dev server 端口由 APP 自己管理**：Vite 默认 5173、webpack 默认 8080，canbox-developer 不关心端口，APP 自己知道
-- **开发者必须先跑 dev server**：canbox-developer 只负责启动 Electron，不负责启动 dev server。如果没跑 dev server，`loadURL` 会失败、窗口空白
-- **canbox-developer 不假设开发框架**：不管用 Vite、webpack 还是其他，只要 main.js 遵循 `NODE_ENV` 约定即可
-- **子进程日志转发**：canbox-developer 会将 APP 进程的 stdout/stderr 转发到 developer 的终端，方便排查问题
+### 发布流程
 
-### 打包发布
+1. 开发者在终端跑 electron-builder 打包 → 得到 `resources/` 目录（`app.asar` + 可能的 `app.asar.unpacked/`）
+2. 在 canbox-developer 点「发布」 → 选择 `resources/` 目录
+3. developer 自动从源码目录提取 `package.json` 和 `logo.png`
+4. 按 canbox 标准结构压 zip：
+   ```
+   {id}-{version}[-{platform}-{arch}].zip
+   ├── app.asar                  ← 从 resources/ 目录
+   ├── app.asar.unpacked/        ← 从 resources/ 目录（如有）
+   ├── package.json              ← 从源码目录
+   └── logo.png                  ← 从源码目录（自动探测）
+   ```
+5. 输出 zip 到源码目录同级
+6. 开发者把 zip 上传到 repo，或通过 canbox-manager 导入
 
-点击打包按钮，canbox-developer 将 APP 源码目录打包为 zip（排除 `node_modules`、`.git`、`build` 等开发目录），输出 `{name}-{version}.zip`。
+**注意：**
+- `id` 取自 package.json 的 `id` 字段，无则用 `name`
+- 有 `app.asar.unpacked/`（原生模块）时，zip 文件名带平台标识（从 resources/ 父目录名推断）
+- 无 `app.asar.unpacked/` 时，zip 全平台通用，文件名不带平台
+- developer 只负责标准化压缩，不替 APP 打 asar
 
-该 zip 可：
+### 安装与运行
 
-- 通过 canbox-manager 的「导入 APP」安装
-- 提交到仓库供用户下载
-
-### 启动命令
-
-```bash
-# 开发模式（手动启动，需先跑 dev server）
-npm run dev      # 启动 Vite/webpack dev server
-npm run start    # electron -r canbox-core/injection.js . --app-id={appId}
-                 # （需手动设 NODE_ENV=development，或从 developer 启动自动设置）
-
-# 生产模式
-npm run build    # Vite/webpack 构建
-electron -r canbox-core/injection.js {APP}/ --app-id={appId}
-```
+canbox-manager 导入 zip 时：
+1. 解压到 `apps/{appId}/`（appId 是随机生成的 8 位串）
+2. 记录 `id → appId` 映射
+3. 启动：`electron -r injection.js apps/{appId}/app.asar --app-id={appId} --no-sandbox`

@@ -43,14 +43,15 @@ async function launchApp(app) {
     }
 }
 
-async function packageApp(app) {
+async function publishApp(app) {
     packaging.value[app.appId] = true;
     try {
-        const result = await window.api.developer.packageApp(app.sourceDir);
+        const result = await window.api.developer.publishApp(app.sourceDir);
+        if (result.canceled) return;
         if (result.success) {
-            ElMessage.success(`已打包: ${result.path}`);
+            ElMessage.success(`已发布: ${result.path}`);
         } else {
-            ElMessage.error(result.error || '打包失败');
+            ElMessage.error(result.error || '发布失败');
         }
     } finally {
         packaging.value[app.appId] = false;
@@ -147,8 +148,8 @@ onMounted(() => {
                             <el-tooltip content="运行" placement="top">
                                 <button class="icon-btn run-btn" @click="launchApp(app)">▶️</button>
                             </el-tooltip>
-                            <el-tooltip content="打包" placement="top">
-                                <button class="icon-btn pack-btn" :disabled="packaging[app.appId]" @click="packageApp(app)">📦</button>
+                            <el-tooltip content="发布" placement="top">
+                                <button class="icon-btn pack-btn" :disabled="packaging[app.appId]" @click="publishApp(app)">📦</button>
                             </el-tooltip>
                             <el-tooltip content="打开数据目录" placement="top">
                                 <button class="icon-btn open-data-dir-btn" @click="openDataDir(app)">📂</button>
