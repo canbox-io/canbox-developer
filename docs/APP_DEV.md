@@ -2,22 +2,40 @@
 
 本文档面向使用 Canbox 平台开发 APP 的开发者，描述 APP 的项目结构、package.json 元数据约定、canbox-core API 用法以及调试与发布流程。
 
-## APP 是标准 Electron 应用
+## 核心前提：APP 是标准 Electron 应用
 
-Canbox APP 是一个标准的 Electron 应用，无任何强制性框架约束。它可以：
+**Canbox APP 首先是一个标准的 Electron 应用，这是它的本质。** canbox-core 和 canbox-developer 只是平台提供的服务层和工具层，它们为 APP 提供便利的运行时服务和开发体验，但不是 APP 运行的前提。
+
+### 三层关系
+
+| 层                         | 角色                                                                | 是否必需 |
+| -------------------------- | ------------------------------------------------------------------- | -------- |
+| **APP 自身**         | 标准 Electron 应用（`app.whenReady()` + `new BrowserWindow()`） | 必需     |
+| **canbox-core**      | 服务提供层，通过 `-r` 注入，提供 store/db/dialog 等公共服务       | 可选     |
+| **canbox-developer** | 开发工具，提供调试启动、打包发布等便利                              | 可选     |
+
+### 不使用 canbox-core / canbox-developer 的影响
+
+- **不使用 canbox-core**：APP 无法调用 `window.api.store`、`window.api.db` 等平台服务，需要自行实现数据持久化（如用 electron-store、lowdb、SQLite 等）。APP 的 Electron 应用本质不受影响。
+- **不使用 canbox-developer**：APP 无法通过 GUI 一键调试/打包，但可以用 `electron .` 或 `electron-builder` 自行启动和打包。canbox-developer 提供的 `NODE_ENV=development` 等环境变量便利也不会自动获得，APP 需自行实现环境判断（见下文「NODE_ENV」一节）。
+- **完全不使用两者**：APP 就是一个普通的 Electron 应用，可以独立分发、独立运行。只是无法接入 canbox 平台的管理和分发体系。
+
+### 运行方式
+
+APP 可以通过以下方式运行，代码完全相同，无需条件编译：
 
 - **canbox 模式运行**：`electron -r canbox-core/injection.js {APP}/ --app-id={appId} --no-sandbox`，自动获得 canbox 环境（统一数据目录、store/db 等公共服务）
 - **独立运行**：`electron {APP}/`，用自己的 Electron 二进制，不共享 canbox 环境
 
-两种方式下 APP 代码完全相同，无需条件编译。
+接入 canbox 平台的 APP 推荐用 canbox 模式运行以获得平台服务；不接入的 APP 也可以独立运行和分发。
 
 ## 关键概念：id、name、appId
 
-| 字段 | 来源 | 格式 | 用途 | 示例 |
-|------|------|------|------|------|
-| `id` | package.json 的 `id` 字段（可选，无则用 `name`） | 反向域名 | APP 全局唯一标识，人类可读，用于 repo 搜索/显示/zip 文件名 | `com.gitee.lizl6.cb-jsonbox` |
-| `name` | package.json 的 `name` 字段 | npm 包名 | npm 标准字段，调试时作 appId | `cb-jsonbox` |
-| `appId` | canbox 安装时自动生成 | 随机 8 位串 | canbox 内部标识，文件系统目录名、`--app-id` 参数、数据隔离路由 | `a1b2c3d4` |
+| 字段      | 来源                                                 | 格式        | 用途                                                             | 示例                               |
+| --------- | ---------------------------------------------------- | ----------- | ---------------------------------------------------------------- | ---------------------------------- |
+| `id`    | package.json 的 `id` 字段（可选，无则用 `name`） | 反向域名    | APP 全局唯一标识，人类可读，用于 repo 搜索/显示/zip 文件名       | `com.github.rexlevin.cb-jsonbox` |
+| `name`  | package.json 的 `name` 字段                        | npm 包名    | npm 标准字段，调试时作 appId                                     | `cb-jsonbox`                     |
+| `appId` | canbox 安装时自动生成                                | 随机 8 位串 | canbox 内部标识，文件系统目录名、`--app-id` 参数、数据隔离路由 | `a1b2c3d4`                       |
 
 - **调试时**：developer 用 `name` 作 appId（`--app-id=cb-jsonbox`），因为没有安装过程
 - **安装后**：manager 生成随机 appId（`--app-id=a1b2c3d4`），数据路由到 `data/a1b2c3d4/`
@@ -58,7 +76,7 @@ function createWindow() {
         }
     });
 
-    // canbox-developer 启动时自动设 NODE_ENV=development
+    // 检查 NODE_ENV 判断运行模式（canbox-developer/manager 会自动设置，也可自行实现判断）
     const isDev = process.env.NODE_ENV === 'development';
     if (isDev) {
         // 开发模式：加载 dev server（端口由 APP 自己决定）
@@ -102,17 +120,17 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 
 ### 字段说明
 
-| 字段 | 必需 | 类型 | 说明 |
-|------|------|------|------|
-| `name` | 是 | string | npm 标准字段，包名。调试时作 appId |
-| `id` | 否 | string | Canbox 约定，APP 全局唯一标识（反向域名格式）。无则用 `name`。用于 zip 文件名和 repo 搜索 |
-| `main` | 是 | string | 主进程入口 JS 文件 |
-| `version` | 是 | string | 版本号 |
-| `description` | 否 | string | APP 描述 |
-| `author` | 否 | string | 作者 |
-| `logo` | 否 | string | 图标文件路径（相对 APP 根目录）。不配时自动探测 |
-| `keywords` | 否 | string[] | 标准 npm 字段，兼做分类标签和搜索关键词 |
-| `platforms` | 否 | string[] | 支持的平台，可选值 `windows`/`darwin`/`linux`。不配则默认全平台 |
+| 字段            | 必需 | 类型     | 说明                                                                                        |
+| --------------- | ---- | -------- | ------------------------------------------------------------------------------------------- |
+| `name`        | 是   | string   | npm 标准字段，包名。调试时作 appId                                                          |
+| `id`          | 否   | string   | Canbox 约定，APP 全局唯一标识（反向域名格式）。无则用 `name`。用于 zip 文件名和 repo 搜索 |
+| `main`        | 是   | string   | 主进程入口 JS 文件                                                                          |
+| `version`     | 是   | string   | 版本号                                                                                      |
+| `description` | 否   | string   | APP 描述                                                                                    |
+| `author`      | 否   | string   | 作者                                                                                        |
+| `logo`        | 否   | string   | 图标文件路径（相对 APP 根目录）。不配时自动探测                                             |
+| `keywords`    | 否   | string[] | 标准 npm 字段，兼做分类标签和搜索关键词                                                     |
+| `platforms`   | 否   | string[] | 支持的平台，可选值 `windows`/`darwin`/`linux`。不配则默认全平台                       |
 
 ### logo 自动探测
 
@@ -224,7 +242,7 @@ const result = await window.api.db.find({ selector: { type: 'item' } });
 
 ### 调试启动流程
 
-**重要：canbox-developer 启动 APP 时会设置 `NODE_ENV=development` 环境变量，APP 的 main.js 必须检查此变量来决定加载方式。**
+canbox-developer 启动 APP 时会设置 `NODE_ENV=development` 环境变量，APP 可选择检查此变量来决定加载方式（也可完全自行实现环境判断，见下文）。
 
 1. 开发者先在 APP 项目目录跑 dev server（如 `npm run dev`）
 2. 在 canbox-developer 中添加 APP（选择 package.json）
@@ -233,12 +251,99 @@ const result = await window.api.db.find({ selector: { type: 'item' } });
    electron -r {canbox-core}/injection.js {sourceDir}/ --app-id={name} --no-sandbox
    # 环境变量：NODE_ENV=development
    ```
-4. APP 的 main.js 检测到 `NODE_ENV=development`，loadURL 到 dev server
+4. APP 的 main.js 检测到 `NODE_ENV=development`（如果 APP 采用此约定），loadURL 到 dev server
 
 **关键说明：**
+
 - dev server 端口由 APP 自己管理（Vite 默认 5173、webpack 默认 8080）
 - 开发者必须先跑 dev server，再从 developer 点运行
 - canbox-developer 不假设开发框架
+- `NODE_ENV=development` 是 developer 提供的便利，不是强制约定——APP 可以不用它（见下文）
+
+### NODE_ENV 环境变量（可选便利）
+
+`NODE_ENV` 是 canbox-developer / canbox-manager 为 APP 提供的一种环境判断便利：启动子进程时显式设置该变量，APP 据此区分开发/生产模式。
+
+**这是可选的便利机制，不是强制约定。** APP 可以选择使用它，也可以完全自行实现环境判断逻辑（例如检查 `app.isPackaged()`、检查 `process.env` 自定义变量、检查某个文件是否存在等）。
+
+#### 各场景下的值
+
+| 启动方式                       | NODE_ENV        | 设置者                                | 用途                                   |
+| ------------------------------ | --------------- | ------------------------------------- | -------------------------------------- |
+| canbox-developer 点「运行」    | `development` | canbox-developer 启动子进程时显式设置 | 加载 dev server，开启热更新和 devTools |
+| canbox-manager 点「启动」      | `production`  | canbox-manager 启动子进程时显式设置   | 加载 asar 内的构建产物，不开 devTools  |
+| APP 独立运行（`electron .`） | 继承当前 shell  | 取决于运行环境                        | 无 canbox 环境时的兜底                 |
+
+**关键：canbox-manager 启动 APP 时会显式设置 `NODE_ENV=production`，不会继承 manager 自身的环境变量。** 即使 manager 在开发模式下运行（`NODE_ENV=development`），被启动的 APP 也会收到 `production`。
+
+#### 方式一：采用 NODE_ENV 约定（推荐接入 canbox 平台的 APP 使用）
+
+APP 的 main.js 检查 `process.env.NODE_ENV`，配合 developer/manager 的自动设置：
+
+```javascript
+const isDev = process.env.NODE_ENV === 'development';
+
+if (isDev) {
+    // 开发模式：加载 dev server + 开 devTools
+    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+} else {
+    // 生产模式：加载构建产物，不开 devTools
+    mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
+}
+```
+
+优点：与 developer/manager 的启动参数天然配合，无需额外配置。
+
+#### 方式二：自行实现环境判断（不依赖 NODE_ENV）
+
+APP 完全可以不检查 `NODE_ENV`，用自己的方式判断开发/生产模式。常见做法：
+
+```javascript
+// 示例：用 Electron 内置的 isPackaged 判断
+const isDev = !app.isPackaged();
+
+if (isDev) {
+    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+} else {
+    mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
+}
+```
+
+或检查自定义环境变量、配置文件等。这种方式的 APP 即使不通过 canbox-developer 启动（如直接 `electron .` 或用其他工具链），也能正确判断运行模式。
+
+> 注意：采用方式二的 APP 在 canbox-developer 中点「运行」时仍然会收到 `NODE_ENV=development`，但 APP 不读它，所以不影响行为。同样，canbox-manager 启动时收到的 `NODE_ENV=production` 也不会被读取——APP 靠自己的逻辑判断。两种方式互不冲突。
+
+#### 不做任何环境判断的影响
+
+如果 APP 既不检查 `NODE_ENV`，也不自行判断环境，把加载方式写死，可能出现以下问题：
+
+1. **始终加载 dev server URL**：
+
+   - 在 canbox-manager 中启动时白屏（没有 dev server 在运行，`loadURL` 连接失败）
+   - 即使碰巧有 dev server 在跑，加载的也是源码而非打包产物，行为不一致
+2. **始终加载构建产物**：
+
+   - 在 canbox-developer 中调试时无法热更新，每次改动都要重新 build
+   - 失去 devTools 调试能力
+3. **始终开 devTools**：
+
+   - 在 canbox-manager 中启动时弹出 devTools 窗口，影响用户体验
+   - 这正是之前 cb-jsonbox 出现的问题：manager 在开发模式运行时 `NODE_ENV=development` 被子进程继承，APP 无条件 `openDevTools()` 导致 devTools 被打开
+4. **前端框架行为异常**：
+
+   - Vue/React 等框架内部会检查 `NODE_ENV` 决定是否启用开发警告、性能追踪等
+   - 生产环境若收到 `development`，会输出大量开发警告并影响性能
+   - 这一点与 APP 自身逻辑无关，是框架行为，即使 APP 用方式二自行判断也要注意
+
+#### 建议
+
+1. **接入 canbox 平台的 APP**：推荐用方式一（检查 `NODE_ENV`），与 developer/manager 天然配合
+2. **希望独立可运行的 APP**：用方式二（如 `!app.isPackaged()`），不依赖 canbox 提供的环境变量
+3. **devTools 只在开发模式打开**，不要无条件调用 `openDevTools()`
+4. **dev server 端口由 APP 自己决定**，在 `package.json` 的 `scripts.dev` 中配置（如 `vite --port 5173`）
+5. **没有前端构建步骤的 APP**（纯静态 HTML）：可以始终用 `loadFile`，无需区分环境
 
 ### 发布流程
 
@@ -257,6 +362,7 @@ const result = await window.api.db.find({ selector: { type: 'item' } });
 6. 开发者把 zip 上传到 repo，或通过 canbox-manager 导入
 
 **注意：**
+
 - `id` 取自 package.json 的 `id` 字段，无则用 `name`
 - 有 `app.asar.unpacked/`（原生模块）时，zip 文件名带平台标识（从 resources/ 父目录名推断）
 - 无 `app.asar.unpacked/` 时，zip 全平台通用，文件名不带平台
@@ -265,6 +371,7 @@ const result = await window.api.db.find({ selector: { type: 'item' } });
 ### 安装与运行
 
 canbox-manager 导入 zip 时：
+
 1. 解压到 `apps/{appId}/`（appId 是随机生成的 8 位串）
 2. 记录 `id → appId` 映射
 3. 启动：`electron -r injection.js apps/{appId}/app.asar --app-id={appId} --no-sandbox`
