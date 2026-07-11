@@ -40,6 +40,14 @@ async function handleZoomReset() {
 window.api.developer.onZoomChanged((factor) => {
     zoomFactor.value = factor;
 });
+
+async function openHomepage() {
+    try {
+        await window.api.misc.openUrl('https://github.com/canbox-io/canbox-developer');
+    } catch (e) {
+        // 忽略打开失败
+    }
+}
 </script>
 
 <template>
@@ -84,7 +92,7 @@ window.api.developer.onZoomChanged((factor) => {
                     <span class="about-value">{{ coreVersion || '-' }}</span>
                 </div>
                 <div class="about-item">
-                    <a href="https://gitee.com/lizl6/canbox-developer" target="_blank" @click.prevent="window.api.misc.openUrl('https://gitee.com/lizl6/canbox-developer')">项目主页</a>
+                    <a href="https://github.com/canbox-io/canbox-developer" target="_blank" @click.prevent="openHomepage">项目主页</a>
                 </div>
             </el-card>
         </main>
@@ -126,7 +134,6 @@ window.api.developer.onZoomChanged((factor) => {
     flex: 1;
     padding: 24px;
     overflow-y: auto;
-    max-width: 640px;
 }
 .settings-section {
     margin-bottom: 20px;

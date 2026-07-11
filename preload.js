@@ -31,9 +31,13 @@ const api = {
     },
     misc: {
         hello: () => ipcRenderer.invoke('canbox.misc.hello'),
+        openUrl: (url) => ipcRenderer.invoke('canbox.misc.openUrl', url),
         getUserData: () => ipcRenderer.invoke('canbox.misc.getUserData'),
         getCoreVersion: () => ipcRenderer.invoke('canbox.misc.getCoreVersion'),
-        getCorePath: () => ipcRenderer.invoke('canbox.misc.getCorePath')
+        getCorePath: () => ipcRenderer.invoke('canbox.misc.getCorePath'),
+        getPlatformInfo: () => ipcRenderer.invoke('canbox.misc.getPlatformInfo'),
+        showItemInFolder: (filePath) => ipcRenderer.invoke('canbox.misc.showItemInFolder', filePath),
+        openPath: (filePath) => ipcRenderer.invoke('canbox.misc.openPath', filePath)
     },
 
     // === Developer 专用 API ===
