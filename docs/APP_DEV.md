@@ -99,6 +99,154 @@ app.on('activate', () => {
 });
 ```
 
+## 标准代码片段：恢复上次窗口位置和大小
+
+窗口状态恢复属于 APP 自身的 UI 行为，**不在 canbox-core 中默认实现**（core 是环境层，不干预 APP 的 UI 策略）。APP 可参考以下标准片段，使用 core 的 store 黑盒路由持久化窗口状态（自动隔离到 `data/{appId}/store/winState.json`）。
+
+该实现已覆盖以下工程细节：
+
+- **节流持久化**：resize/move 高频事件 300ms debounce，避免频繁写盘
+- **多显示器边界校验**：副屏拔除时窗口可能跑到屏幕外，用 `screen.getDisplayMatching` 校验，不可见则丢弃 x/y 只保留尺寸
+- **最大化/全屏状态恢复**：单独存 `isMaximized`/`isFullScreen` 标志，最大化时不存 bounds（否则会把巨大化的尺寸当默认值）
+- **崩溃容错**：除了 `close` 事件，resize/move/maximize 等事件也触发保存，APP 被强制 kill 也能恢复上一次状态
+
+```javascript
+const { app, BrowserWindow, Menu, screen } = require('electron');
+const path = require('path');
+
+let mainWindow = null;
+
+// 获取窗口状态 store（按 appId 物理隔离，黑盒式）
+function getWinStateStore() {
+    const store = require(path.join(global.__CANBOX_CORE_PATH__, 'lib', 'store'));
+    return store.getStore(
+        global.__CANBOX_ENV__.appId,
+        'winState',
+        path.join(global.__CANBOX_ENV__.usersPath, 'data')
+    );
+}
+
+// 保存窗口状态（含位置、大小、最大化、全屏）
+// 节流 300ms，避免 resize/move 高频写盘
+let winStateSaveTimer = null;
+function saveWindowState() {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (winStateSaveTimer) clearTimeout(winStateSaveTimer);
+    winStateSaveTimer = setTimeout(() => {
+        try {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+            const store = getWinStateStore();
+            // 最大化或全屏时只存状态，不存 bounds（否则会把巨大化的尺寸当默认值）
+            const isMaximized = mainWindow.isMaximized();
+            const isFullScreen = mainWindow.isFullScreen();
+            const bounds = (isMaximized || isFullScreen) ? null : mainWindow.getBounds();
+            store.set('state', { bounds, isMaximized, isFullScreen });
+        } catch (e) {
+            // 忽略保存失败
+        }
+    }, 300);
+}
+
+// 读取并校验上次窗口状态（多显示器边界校验，窗口在屏幕外则丢弃 x/y）
+function loadWindowState() {
+    const store = getWinStateStore();
+    const state = store.get('state');
+    if (!state) return null;
+
+    if (state.isMaximized || state.isFullScreen || !state.bounds) {
+        return { isMaximized: !!state.isMaximized, isFullScreen: !!state.isFullScreen };
+    }
+
+    // 校验 bounds 是否在某个显示器可视范围内
+    const bounds = state.bounds;
+    const display = screen.getDisplayMatching(bounds);
+    const visibleArea = display.workArea;
+    const isVisible =
+        bounds.x + bounds.width > visibleArea.x &&
+        bounds.x < visibleArea.x + visibleArea.width &&
+        bounds.y + bounds.height > visibleArea.y &&
+        bounds.y < visibleArea.y + visibleArea.height;
+
+    if (!isVisible) {
+        // 窗口在屏幕外（如副屏已拔除），丢弃位置只保留尺寸
+        return { width: bounds.width, height: bounds.height };
+    }
+
+    return {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        isMaximized: false,
+        isFullScreen: false
+    };
+}
+
+function createWindow() {
+    // 恢复上次窗口状态
+    const saved = loadWindowState();
+    const defaultWidth = 800;
+    const defaultHeight = 600;
+
+    mainWindow = new BrowserWindow({
+        width: (saved && saved.width) || defaultWidth,
+        height: (saved && saved.height) || defaultHeight,
+        x: (saved && saved.x !== undefined) ? saved.x : undefined,
+        y: (saved && saved.y !== undefined) ? saved.y : undefined,
+        minWidth: 400,
+        minHeight: 300,
+        icon: path.join(__dirname, 'logo.png'),
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: false
+        }
+    });
+
+    const isDev = process.env.NODE_ENV === 'development';
+    if (isDev) {
+        mainWindow.loadURL('http://localhost:5173');
+        mainWindow.webContents.openDevTools({ mode: 'detach' });
+    } else {
+        mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
+    }
+
+    // 恢复最大化 / 全屏状态（需在窗口 show 之后才生效）
+    if (saved && saved.isMaximized) {
+        mainWindow.maximize();
+    } else if (saved && saved.isFullScreen) {
+        mainWindow.setFullScreen(true);
+    }
+
+    // 监听窗口状态变化，节流持久化（resize/move/close 都会触发）
+    mainWindow.on('resize', saveWindowState);
+    mainWindow.on('move', saveWindowState);
+    mainWindow.on('maximize', saveWindowState);
+    mainWindow.on('unmaximize', saveWindowState);
+    mainWindow.on('enter-full-screen', saveWindowState);
+    mainWindow.on('leave-full-screen', saveWindowState);
+    mainWindow.on('close', saveWindowState);
+}
+
+app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
+    createWindow();
+});
+
+app.on('window-all-closed', () => app.quit());
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+```
+
+**关键点说明：**
+
+1. **`global.__CANBOX_CORE_PATH__` 和 `global.__CANBOX_ENV__`** 由 canbox-core 的 injection.js 预加载时挂载，APP 直接读取即可（不需要 `npm install canbox-core`）
+2. **`store.getStore(appId, 'winState', dataPath)`** 是 core store 模块的直接引用，按 appId 物理隔离到 `data/{appId}/store/winState.json`，与 IPC 黑盒路由一致
+3. **不新增 IPC 通道**：窗口状态在主进程直接读写，渲染进程无需参与
+4. **APP 可按需裁剪**：固定尺寸的对话框式工具 APP 可以只保留位置恢复，去掉大小/最大化/全屏逻辑
+
 ## package.json 元数据约定
 
 package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 等标准字段外，Canbox 约定以下可选字段用于 APP 元数据：
