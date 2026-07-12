@@ -1,13 +1,16 @@
 {
     "name": "canbox-developer",
+    "id": "com.github.canbox-io.canbox-developer",
     "version": "0.1.0",
     "description": "Canbox 开发者工具 APP — 脚手架创建、源码目录调试启动、打包发布",
     "main": "main.js",
+    "logo": "logo.png",
     "license": "Apache-2.0",
     "author": "lizl6",
     "scripts": {
         "dev": "vite --host 0.0.0.0 --port 5102",
         "build": "vite build",
+        "dist": "electron-builder --linux dir",
         "start": "NODE_ENV=development electron -r /depot/cargo/canbox-core/injection.js . --app-id=canbox-developer --no-sandbox"
     },
     "dependencies": {
@@ -20,6 +23,23 @@
     "devDependencies": {
         "@vitejs/plugin-vue": "^5.1.2",
         "electron": "^41.2.1",
+        "electron-builder": "^26.0.12",
         "vite": "^5.4.6"
+    },
+    "build": {
+        "appId": "com.github.canbox-io.canbox-developer",
+        "directories": {
+            "output": "dist"
+        },
+        "files": [
+            "main.js",
+            "preload.js",
+            "build/**/*",
+            "package.json",
+            "logo.png"
+        ],
+        "linux": {
+            "target": ["dir"]
+        }
     }
 }

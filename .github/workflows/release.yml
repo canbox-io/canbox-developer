@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout APP
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmmirror.com/
+
+      - name: Set Electron mirror
+        run: echo "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build frontend (Vite)
+        run: npm run build
+
+      - name: Build app.asar (electron-builder)
+        run: npm run dist
+
+      - name: Pack canbox zip
+        run: node scripts/canbox-publish.js --source . --resources dist/linux-unpacked/resources/ --out release/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
