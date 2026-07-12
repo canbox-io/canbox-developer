@@ -523,3 +523,201 @@ canbox-manager 导入 zip 时：
 1. 解压到 `apps/{appId}/`（appId 是随机生成的 8 位串）
 2. 记录 `id → appId` 映射
 3. 启动：`electron -r injection.js apps/{appId}/app.asar --app-id={appId} --no-sandbox`
+
+### 自动发布（CI/CD）
+
+手动发布流程适合偶尔操作，频繁发版建议用 CI/CD 自动化。Canbox 提供了 `canbox-publish.js` CLI 工具，可在 CI 环境中完成标准化 zip 打包。
+
+#### canbox-publish.js CLI
+
+位于 `canbox-developer/scripts/canbox-publish.js`，从 electron-builder 构建产物中提取 app.asar，按 canbox 标准结构打包为 zip。与 canbox-developer GUI 的「发布」按钮共用同一份打包逻辑，确保产物一致。
+
+```bash
+# 用法
+node canbox-publish.js --source <源码目录> --resources <构建产物目录> [--out <输出目录>]
+
+# 示例
+node canbox-publish.js --source . --resources dist/linux-unpacked/resources/ --out release/
+```
+
+**前置条件**：APP 需在 `package.json` 中配置 electron-builder 的 `build` 字段，至少包含 `dir` target 以产出 `app.asar`。
+
+#### 场景一：Canbox APP（仅 zip）
+
+使用 canbox API 的 APP 无法独立运行，只需打包 canbox zip。由于不涉及原生模块时 zip 全平台通用，构建只需在一个平台（Linux CI 成本最低）进行。
+
+```yaml
+# .github/workflows/release.yml
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout APP
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmmirror.com/
+
+      - name: Set Electron mirror
+        run: echo "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build app.asar
+        run: npm run dist
+
+      - name: Checkout canbox-developer
+        uses: actions/checkout@v4
+        with:
+          repository: canbox-io/canbox-developer
+          path: canbox-developer
+
+      - name: Install adm-zip for publish script
+        run: npm install --no-save adm-zip
+
+      - name: Pack canbox zip
+        run: node canbox-developer/scripts/canbox-publish.js --source . --resources dist/linux-unpacked/resources/ --out release/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+**package.json 需添加的配置**：
+
+```json
+{
+    "scripts": {
+        "build": "vite build",
+        "dist": "electron-builder --linux dir"
+    },
+    "devDependencies": {
+        "electron-builder": "^26.0.12"
+    },
+    "build": {
+        "appId": "com.example.my-app",
+        "directories": { "output": "dist" },
+        "files": [
+            "main.js",
+            "preload.js",
+            "build/**/*",
+            "package.json",
+            "logo.png"
+        ],
+        "linux": { "target": ["dir"] }
+    }
+}
+```
+
+#### 场景二：独立 APP（原生安装包 + canbox zip）
+
+不使用 canbox API 的 APP 可独立分发，需要同时产出原生安装包（AppImage/deb/msi/exe）和 canbox zip。使用矩阵构建覆盖全平台。
+
+```yaml
+# .github/workflows/release.yml
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: AppImage
+          - os: windows-latest
+            target: nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout APP
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmmirror.com/
+
+      - name: Set Electron mirror (Linux)
+        if: runner.os == 'Linux'
+        run: echo "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/" >> $GITHUB_ENV
+
+      - name: Set Electron mirror (Windows)
+        if: runner.os == 'Windows'
+        run: echo "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/" >> $env:GITHUB_ENV
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build native installer
+        run: npx electron-builder --${{ matrix.target }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pack canbox zip (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          git clone https://github.com/canbox-io/canbox-developer.git /tmp/canbox-developer
+          npm install --no-save adm-zip
+          node /tmp/canbox-developer/scripts/canbox-publish.js --source . --resources dist/linux-unpacked/resources/ --out release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.os }}
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.msi
+            dist/*.exe
+            release/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+#### 本地快速发布
+
+除 CI/CD 自动发布外，也可在本地用 `github-auto-release` 技能快速完成「生成 changelog → 打 tag → 推送到 GitHub」的收尾流程，适合紧急补丁场景。注意此方式不包含跨平台构建，需提前在本地打好包。

@@ -135,90 +135,10 @@ ipcMain.handle('developer.apps.publish', async (_e, sourceDir) => {
 
     const resourcesDir = result.filePaths[0];
 
-    // 检查 app.asar 存在
-    const asarPath = path.join(resourcesDir, 'app.asar');
-    if (!fs.existsSync(asarPath)) {
-        return { success: false, error: '所选目录中未找到 app.asar，请选择包含 app.asar 的目录' };
-    }
-
-    // 检查 app.asar.unpacked 是否存在（判断有无原生模块）
-    const unpackedPath = path.join(resourcesDir, 'app.asar.unpacked');
-    const hasUnpacked = fs.existsSync(unpackedPath);
-
-    // 从源码目录读 package.json
-    const pkgPath = path.join(sourceDir, 'package.json');
-    if (!fs.existsSync(pkgPath)) {
-        return { success: false, error: '源码目录中未找到 package.json' };
-    }
-
+    // 调用共享模块打包（与 CLI canbox-publish.js 共用同一逻辑）
+    const { packCanboxZip } = require(path.join(__dirname, 'scripts', 'canbox-publish.js'));
     try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        const appIdentifier = pkg.id || pkg.name;
-        const version = pkg.version || '0.0.0';
-
-        // 推断平台（从 resources 父目录名，如 linux-x64-unpacked）
-        let platformSuffix = '';
-        if (hasUnpacked) {
-            const parentName = path.basename(path.dirname(resourcesDir));
-            const match = parentName.match(/^(.+)-unpacked$/);
-            if (match) {
-                platformSuffix = `-${match[1]}`;
-            }
-        }
-
-        const zipName = `${appIdentifier}-${version}${platformSuffix}.zip`;
-        const zipPath = path.join(path.dirname(sourceDir), zipName);
-
-        // 禁用 Electron asar 补丁，否则 adm-zip 的 addLocalFile 会把 app.asar 当目录处理
-        // （statSync 返回 isDirectory=true，readFileSync 读不到真实内容），生成的 zip 里
-        // app.asar 会变成空目录 entry，APP 内容丢失
-        const prevNoAsar = process.noAsar;
-        process.noAsar = true;
-        try {
-            const AdmZip = require('adm-zip');
-            const zip = new AdmZip();
-
-            // 1. app.asar
-            zip.addLocalFile(asarPath, '');
-
-            // 2. app.asar.unpacked/（如有）
-            if (hasUnpacked) {
-                function addDirToZip(dirPath, zipPath) {
-                    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-                    for (const entry of entries) {
-                        const fullPath = path.join(dirPath, entry.name);
-                        const entryZipPath = zipPath ? `${zipPath}/${entry.name}` : entry.name;
-                        if (entry.isDirectory()) {
-                            addDirToZip(fullPath, entryZipPath);
-                        } else {
-                            zip.addLocalFile(fullPath, zipPath);
-                        }
-                    }
-                }
-                addDirToZip(unpackedPath, 'app.asar.unpacked');
-            }
-
-            // 3. package.json（从源码目录）
-            zip.addLocalFile(pkgPath, '');
-
-            // 4. logo.png（从源码目录自动探测）
-            const logoCandidates = pkg.logo
-                ? [pkg.logo]
-                : ['logo.png', 'logo.svg', 'icon.png', 'favicon.png'];
-            for (const candidate of logoCandidates) {
-                const logoFile = path.join(sourceDir, candidate);
-                if (fs.existsSync(logoFile)) {
-                    zip.addLocalFile(logoFile, '');
-                    break;
-                }
-            }
-
-            zip.writeZip(zipPath);
-        } finally {
-            process.noAsar = prevNoAsar;
-        }
-
-        return { success: true, path: zipPath };
+        return packCanboxZip(sourceDir, resourcesDir);
     } catch (e) {
         return { success: false, error: e.message };
     }
