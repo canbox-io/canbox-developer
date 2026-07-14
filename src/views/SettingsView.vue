@@ -43,7 +43,7 @@ window.api.developer.onZoomChanged((factor) => {
 
 async function openHomepage() {
     try {
-        await window.api.misc.openUrl('https://github.com/canbox-io/canbox-developer');
+        await window.api.developer.openUrl('https://github.com/canbox-io/canbox-developer');
     } catch (e) {
         // 忽略打开失败
     }

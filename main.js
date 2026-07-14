@@ -509,17 +509,12 @@ ipcMain.handle('developer.zoom.reset', async () => {
     return { success: true, factor: 1.0 };
 });
 
-// ====== 窗口创建 ======
+ipcMain.handle('developer.dialog.showOpenDialog', async (_e, options) => {
+    return dialog.showOpenDialog(BrowserWindow.getFocusedWindow(), options);
+});
 
-// 选择目录对话框
-ipcMain.handle('developer.dialog.selectDirectory', async () => {
-    const result = await dialog.showOpenDialog({
-        properties: ['openDirectory', 'createDirectory']
-    });
-    if (result.canceled || result.filePaths.length === 0) {
-        return null;
-    }
-    return result.filePaths[0];
+ipcMain.handle('developer.shell.openUrl', async (_e, url) => {
+    return shell.openExternal(url);
 });
 
 // ====== 窗口创建 ======

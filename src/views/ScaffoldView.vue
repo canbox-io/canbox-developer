@@ -12,7 +12,7 @@ const form = ref({
 const creating = ref(false);
 
 async function selectDirectory() {
-    const result = await window.api.dialog.showOpenDialog({
+    const result = await window.api.developer.showOpenDialog({
         properties: ['openDirectory', 'createDirectory']
     });
     if (!result.canceled && result.filePaths.length > 0) {

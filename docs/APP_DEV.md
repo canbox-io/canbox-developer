@@ -11,7 +11,7 @@
 | 层                         | 角色                                                                | 是否必需 |
 | -------------------------- | ------------------------------------------------------------------- | -------- |
 | **APP 自身**         | 标准 Electron 应用（`app.whenReady()` + `new BrowserWindow()`） | 必需     |
-| **canbox-core**      | 服务提供层，通过 `-r` 注入，提供 store/db/dialog 等公共服务       | 可选     |
+| **canbox-core**      | 服务提供层，通过 `-r` 注入，提供 store/db/misc 公共服务（数据隔离与环境信息） | 可选     |
 | **canbox-developer** | 开发工具，提供调试启动、打包发布等便利                              | 可选     |
 
 ### 不使用 canbox-core / canbox-developer 的影响
@@ -309,12 +309,15 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 
 APP 通过 preload.js 的 contextBridge 暴露 canbox-core API。**API 为黑盒式——APP 不传 appId，由 core 自动路由到 `data/{appId}/` 目录。**
 
+canbox-core 是"可选服务提供层"，只提供体现平台价值的能力（数据隔离、环境信息）。窗口/对话框/快捷键/通知/shell 等 APP 一行 Electron 代码即可完成的能力不再由 core 提供——APP 如需这些能力，在自身 main.js 注册 IPC（通道名用 APP 自己的前缀，如 `myapp.dialog.*`），preload 里桥接即可。
+
 ### preload.js 模板
 
 ```javascript
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+    // === canbox-core 公共服务（黑盒式，按 appId 自动隔离）===
     store: {
         get: (name, key) => ipcRenderer.invoke('canbox.store.get', name, key),
         set: (name, key, value) => ipcRenderer.invoke('canbox.store.set', name, key, value),
@@ -330,25 +333,23 @@ contextBridge.exposeInMainWorld('api', {
         find: (query) => ipcRenderer.invoke('canbox.db.find', query),
         createIndex: (index) => ipcRenderer.invoke('canbox.db.createIndex', index)
     },
-    dialog: {
-        showMessageBox: (options) => ipcRenderer.invoke('canbox.dialog.showMessageBox', options),
-        showOpenDialog: (options) => ipcRenderer.invoke('canbox.dialog.showOpenDialog', options),
-        showSaveDialog: (options) => ipcRenderer.invoke('canbox.dialog.showSaveDialog', options)
-    },
-    window: {
-        createWindow: (options) => ipcRenderer.invoke('canbox.window.createWindow', options),
-        notification: (options) => ipcRenderer.invoke('canbox.window.notification', options)
-    },
     misc: {
         hello: () => ipcRenderer.invoke('canbox.misc.hello'),
-        openUrl: (url) => ipcRenderer.invoke('canbox.misc.openUrl', url),
         getUserData: () => ipcRenderer.invoke('canbox.misc.getUserData'),
         getCoreVersion: () => ipcRenderer.invoke('canbox.misc.getCoreVersion'),
         getCorePath: () => ipcRenderer.invoke('canbox.misc.getCorePath'),
-        getPlatformInfo: () => ipcRenderer.invoke('canbox.misc.getPlatformInfo'),
-        showItemInFolder: (filePath) => ipcRenderer.invoke('canbox.misc.showItemInFolder', filePath),
-        openPath: (filePath) => ipcRenderer.invoke('canbox.misc.openPath', filePath)
+        getPlatformInfo: () => ipcRenderer.invoke('canbox.misc.getPlatformInfo')
     }
+
+    // === APP 自有 IPC（非 canbox-core 提供，按需添加）===
+    // 如需对话框/通知/打开 URL 等，在 APP main.js 注册自己的 IPC 通道：
+    //   ipcMain.handle('myapp.dialog.showOpenDialog', async (_e, options) => {
+    //       return dialog.showOpenDialog(BrowserWindow.getFocusedWindow(), options);
+    //   });
+    // preload 桥接：
+    //   myapp: {
+    //       showOpenDialog: (options) => ipcRenderer.invoke('myapp.dialog.showOpenDialog', options)
+    //   }
 });
 ```
 

@@ -3,12 +3,15 @@
  *
  * 通过 contextBridge 暴露 canbox-core API + developer 专用 API。
  * canbox-core API 为黑盒式（APP 不传 appId，由 core 自动路由）。
+ *
+ * 说明：dialog / window / shortcut / sudo / shell 等能力 canbox-core 不再提供，
+ * developer 作为普通 APP 在自身 main.js 注册所需 IPC（见 developer.* 通道）。
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
 
 const api = {
-    // === canbox-core 公共服务（黑盒式） ===
+    // === canbox-core 公共服务（仅数据隔离与环境信息，黑盒式）===
     store: {
         get: (name, key) => ipcRenderer.invoke('canbox.store.get', name, key),
         set: (name, key, value) => ipcRenderer.invoke('canbox.store.set', name, key, value),
@@ -24,20 +27,12 @@ const api = {
         find: (query) => ipcRenderer.invoke('canbox.db.find', query),
         createIndex: (index) => ipcRenderer.invoke('canbox.db.createIndex', index)
     },
-    dialog: {
-        showMessageBox: (options) => ipcRenderer.invoke('canbox.dialog.showMessageBox', options),
-        showOpenDialog: (options) => ipcRenderer.invoke('canbox.dialog.showOpenDialog', options),
-        showSaveDialog: (options) => ipcRenderer.invoke('canbox.dialog.showSaveDialog', options)
-    },
     misc: {
         hello: () => ipcRenderer.invoke('canbox.misc.hello'),
-        openUrl: (url) => ipcRenderer.invoke('canbox.misc.openUrl', url),
         getUserData: () => ipcRenderer.invoke('canbox.misc.getUserData'),
         getCoreVersion: () => ipcRenderer.invoke('canbox.misc.getCoreVersion'),
         getCorePath: () => ipcRenderer.invoke('canbox.misc.getCorePath'),
-        getPlatformInfo: () => ipcRenderer.invoke('canbox.misc.getPlatformInfo'),
-        showItemInFolder: (filePath) => ipcRenderer.invoke('canbox.misc.showItemInFolder', filePath),
-        openPath: (filePath) => ipcRenderer.invoke('canbox.misc.openPath', filePath)
+        getPlatformInfo: () => ipcRenderer.invoke('canbox.misc.getPlatformInfo')
     },
 
     // === Developer 专用 API ===
@@ -70,6 +65,10 @@ const api = {
         onZoomChanged: (callback) => {
             ipcRenderer.on('developer:zoomChanged', (_e, factor) => callback(factor));
         },
+
+        // 原生能力（APP 自有，非 canbox-core 提供）
+        showOpenDialog: (options) => ipcRenderer.invoke('developer.dialog.showOpenDialog', options),
+        openUrl: (url) => ipcRenderer.invoke('developer.shell.openUrl', url),
 
         // Vue 挂载完成通知
         appReady: () => ipcRenderer.invoke('developer.appReady')
