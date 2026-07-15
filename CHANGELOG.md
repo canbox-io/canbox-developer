@@ -4,6 +4,28 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.1.1] - 2026-07-15
+
+### feat | 新功能 / Features
+
+添加多语言支持（vue-i18n），设置页可切换中英文界面
+实现语言偏好持久化，重启后自动恢复上次选择的语言
+
+Add i18n support (vue-i18n), switch Chinese/English in settings page
+Persist language preference, restore last selected language on restart
+
+### fix | 问题修复 / Bug Fixes
+
+修复 GitHub Release 页面不显示 CHANGELOG 内容的问题
+
+Fix GitHub Release page not showing CHANGELOG content
+
+### refactor | 重构 / Refactoring
+
+将对话框和 URL 打开能力从 canbox-core 迁移至 developer 自身 IPC
+
+Move dialog and URL opening capabilities from canbox-core to developer IPC
+
 ## [0.1.0] - 2026-07-12
 
 ### feat | 新功能 / Features
