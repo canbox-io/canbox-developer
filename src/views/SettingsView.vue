@@ -1,21 +1,37 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useSettingsStore } from '../stores/settings';
 
 const router = useRouter();
+const { t, locale } = useI18n();
+const settingsStore = useSettingsStore();
 const zoomFactor = ref(1.0);
 const coreVersion = ref('');
+const appVersion = __APP_VERSION__;
+
+const languages = [
+    { value: 'zh-CN', label: '简体中文' },
+    { value: 'en-US', label: 'English' }
+];
 
 function back() {
     router.push('/');
 }
 
-// ESC 快捷键返回主界面
 function onKeydown(e) {
     if (e.key === 'Escape') back();
 }
 
 onMounted(async () => {
+    await settingsStore.fetchSettings();
+    const savedLang = settingsStore.settings.language;
+    if (savedLang && savedLang !== locale.value) {
+        locale.value = savedLang;
+    }
+    try { localStorage.setItem('canbox.locale', savedLang); } catch (e) {}
+
     const result = await window.api.developer.zoomGet();
     if (result.success) zoomFactor.value = result.factor;
     coreVersion.value = await window.api.misc.getCoreVersion();
@@ -25,6 +41,12 @@ onMounted(async () => {
 onUnmounted(() => {
     document.removeEventListener('keydown', onKeydown);
 });
+
+async function handleLanguageChange(value) {
+    await settingsStore.setSetting('language', value);
+    locale.value = value;
+    try { localStorage.setItem('canbox.locale', value); } catch (e) {}
+}
 
 async function handleZoomChange(value) {
     zoomFactor.value = value;
@@ -36,7 +58,6 @@ async function handleZoomReset() {
     await window.api.developer.zoomReset();
 }
 
-// 监听主进程推送的 zoom 变化（快捷键调节后同步 UI）
 window.api.developer.onZoomChanged((factor) => {
     zoomFactor.value = factor;
 });
@@ -53,27 +74,48 @@ async function openHomepage() {
 <template>
     <div class="settings-view">
         <header class="view-header">
-            <h1>设置</h1>
-            <span class="close-btn" title="关闭（ESC）" @click="back">✕</span>
+            <h1>{{ t('settings.title') }}</h1>
+            <span class="close-btn" :title="t('settings.close')" @click="back">✕</span>
         </header>
         <main class="view-body">
             <!-- 通用 -->
             <el-card class="settings-section" shadow="never">
                 <template #header>
-                    <span class="section-title">通用</span>
+                    <span class="section-title">{{ t('settings.general') }}</span>
                 </template>
+
+                <!-- 语言 -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="label-text">{{ t('settings.language') }}</span>
+                        <span class="label-hint">{{ t('settings.languageHint') }}</span>
+                    </div>
+                    <el-select
+                        :model-value="settingsStore.settings.language"
+                        @change="handleLanguageChange"
+                        size="default"
+                        style="width: 180px"
+                    >
+                        <el-option
+                            v-for="lang in languages"
+                            :key="lang.value"
+                            :label="lang.label"
+                            :value="lang.value"
+                        />
+                    </el-select>
+                </div>
 
                 <!-- 缩放比例 -->
                 <div class="setting-item">
                     <div class="setting-label">
-                        <span class="label-text">缩放比例</span>
-                        <span class="label-hint">Ctrl+滚轮 / Ctrl++ / Ctrl+- / Ctrl+0 快捷调节，范围 0.5~2.0</span>
+                        <span class="label-text">{{ t('settings.zoom') }}</span>
+                        <span class="label-hint">{{ t('settings.zoomHint') }}</span>
                     </div>
                     <div class="zoom-control">
                         <el-button size="small" @click="handleZoomChange(Math.max(0.5, zoomFactor - 0.1))">-</el-button>
                         <span class="zoom-value">{{ zoomFactor.toFixed(1) }}x</span>
                         <el-button size="small" @click="handleZoomChange(Math.min(2.0, zoomFactor + 0.1))">+</el-button>
-                        <el-button size="small" plain @click="handleZoomReset">重置</el-button>
+                        <el-button size="small" plain @click="handleZoomReset">{{ t('settings.zoomReset') }}</el-button>
                     </div>
                 </div>
             </el-card>
@@ -81,18 +123,18 @@ async function openHomepage() {
             <!-- 关于 -->
             <el-card class="settings-section" shadow="never">
                 <template #header>
-                    <span class="section-title">关于</span>
+                    <span class="section-title">{{ t('settings.about') }}</span>
                 </template>
                 <div class="about-item">
                     <span class="label-text">canbox-developer</span>
-                    <span class="about-value">0.1.0</span>
+                    <span class="about-value">{{ appVersion }}</span>
                 </div>
                 <div class="about-item">
                     <span class="label-text">canbox-core</span>
                     <span class="about-value">{{ coreVersion || '-' }}</span>
                 </div>
                 <div class="about-item">
-                    <a href="https://github.com/canbox-io/canbox-developer" target="_blank" @click.prevent="openHomepage">项目主页</a>
+                    <a href="https://github.com/canbox-io/canbox-developer" target="_blank" @click.prevent="openHomepage">{{ t('settings.projectHomepage') }}</a>
                 </div>
             </el-card>
         </main>

@@ -66,6 +66,11 @@ const api = {
             ipcRenderer.on('developer:zoomChanged', (_e, factor) => callback(factor));
         },
 
+        // 设置（通用 key-value 持久化）
+        settingsGet: (key) => ipcRenderer.invoke('developer.settings.get', key),
+        settingsSet: (key, value) => ipcRenderer.invoke('developer.settings.set', key, value),
+        settingsGetAll: () => ipcRenderer.invoke('developer.settings.getAll'),
+
         // 原生能力（APP 自有，非 canbox-core 提供）
         showOpenDialog: (options) => ipcRenderer.invoke('developer.dialog.showOpenDialog', options),
         openUrl: (url) => ipcRenderer.invoke('developer.shell.openUrl', url),

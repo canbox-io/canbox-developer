@@ -2,8 +2,10 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { useI18n } from 'vue-i18n';
 
 const router = useRouter();
+const { t } = useI18n();
 const projects = ref([]);
 const packaging = ref({});
 
@@ -27,19 +29,19 @@ async function addApp() {
     const result = await window.api.developer.addApp();
     if (result.canceled) return;
     if (result.success) {
-        ElMessage.success(`已添加: ${result.app.name}`);
+        ElMessage.success(t('projects.added', { name: result.app.name }));
         await loadProjects();
     } else {
-        ElMessage.error(result.error || '添加失败');
+        ElMessage.error(result.error || t('projects.addFailed'));
     }
 }
 
 async function launchApp(app) {
     const result = await window.api.developer.launchApp(app.sourceDir);
     if (result.success) {
-        ElMessage.success(`已启动: ${app.name}`);
+        ElMessage.success(t('projects.launched', { name: app.name }));
     } else {
-        ElMessage.error(result.error || '启动失败');
+        ElMessage.error(result.error || t('projects.launchFailed'));
     }
 }
 
@@ -49,9 +51,9 @@ async function publishApp(app) {
         const result = await window.api.developer.publishApp(app.sourceDir);
         if (result.canceled) return;
         if (result.success) {
-            ElMessage.success(`已发布: ${result.path}`);
+            ElMessage.success(t('projects.published', { path: result.path }));
         } else {
-            ElMessage.error(result.error || '发布失败');
+            ElMessage.error(result.error || t('projects.publishFailed'));
         }
     } finally {
         packaging.value[app.appId] = false;
@@ -60,12 +62,12 @@ async function publishApp(app) {
 
 async function clearData(app) {
     try {
-        await ElMessageBox.confirm(`确认清除 ${app.name} 的运行数据？`, '提示', { type: 'warning' });
+        await ElMessageBox.confirm(t('projects.confirmClearData', { name: app.name }), t('projects.confirmTitle'), { type: 'warning' });
         const result = await window.api.developer.clearData(app.appId);
         if (result.success) {
-            ElMessage.success('数据已清除');
+            ElMessage.success(t('projects.dataCleared'));
         } else {
-            ElMessage.error(result.error || '清除失败');
+            ElMessage.error(result.error || t('projects.clearFailed'));
         }
     } catch (e) {
         // 用户取消
@@ -74,13 +76,13 @@ async function clearData(app) {
 
 async function removeApp(app) {
     try {
-        await ElMessageBox.confirm(`确认从开发列表移除 ${app.name}？（不会删除源码）`, '提示', { type: 'warning' });
+        await ElMessageBox.confirm(t('projects.confirmRemoveApp', { name: app.name }), t('projects.confirmTitle'), { type: 'warning' });
         const result = await window.api.developer.removeApp(app.appId);
         if (result.success) {
-            ElMessage.success('已移除');
+            ElMessage.success(t('projects.removed'));
             await loadProjects();
         } else {
-            ElMessage.error(result.error || '移除失败');
+            ElMessage.error(result.error || t('projects.removeFailed'));
         }
     } catch (e) {
         // 用户取消
@@ -103,17 +105,17 @@ onMounted(() => {
 <template>
     <div class="projects-view">
         <header class="view-header">
-            <h1>开发项目</h1>
+            <h1>{{ t('projects.title') }}</h1>
             <div class="header-actions">
-                <el-button type="primary" @click="addApp">添加 APP</el-button>
-                <el-button circle @click="router.push('/settings')" title="设置">
+                <el-button type="primary" @click="addApp">{{ t('projects.addApp') }}</el-button>
+                <el-button circle @click="router.push('/settings')" :title="t('projects.settings')">
                     <span style="font-size: 18px;">⚙</span>
                 </el-button>
             </div>
         </header>
         <main class="view-body">
             <div v-if="projects.length === 0" class="empty-state">
-                <el-empty description="暂无开发项目，点击右上角「添加 APP」选择 package.json" />
+                <el-empty :description="t('projects.empty')" />
             </div>
             <div v-else class="app-list">
                 <div v-for="app in projects" :key="app.appId" class="app-card">
@@ -135,7 +137,7 @@ onMounted(() => {
                                 </el-tooltip>
                             </span>
                         </div>
-                        <div class="app-desc">{{ app.description || '无描述' }}</div>
+                        <div class="app-desc">{{ app.description || t('projects.noDescription') }}</div>
                         <div class="app-path">{{ app.sourceDir }}</div>
 
                         <!-- keywords 标签 -->
@@ -145,19 +147,19 @@ onMounted(() => {
 
                         <!-- 底部操作按钮 -->
                         <div class="app-actions">
-                            <el-tooltip content="运行" placement="top">
+                            <el-tooltip :content="t('projects.run')" placement="top">
                                 <button class="icon-btn run-btn" @click="launchApp(app)">▶️</button>
                             </el-tooltip>
-                            <el-tooltip content="发布" placement="top">
+                            <el-tooltip :content="t('projects.publish')" placement="top">
                                 <button class="icon-btn pack-btn" :disabled="packaging[app.appId]" @click="publishApp(app)">📦</button>
                             </el-tooltip>
-                            <el-tooltip content="打开数据目录" placement="top">
+                            <el-tooltip :content="t('projects.openDataDir')" placement="top">
                                 <button class="icon-btn open-data-dir-btn" @click="openDataDir(app)">📂</button>
                             </el-tooltip>
-                            <el-tooltip content="清除数据" placement="top">
+                            <el-tooltip :content="t('projects.clearData')" placement="top">
                                 <button class="icon-btn clear-btn" @click="clearData(app)">🧹</button>
                             </el-tooltip>
-                            <el-tooltip content="移除" placement="top">
+                            <el-tooltip :content="t('projects.remove')" placement="top">
                                 <button class="icon-btn delete-btn" @click="removeApp(app)">🗑️</button>
                             </el-tooltip>
                         </div>

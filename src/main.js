@@ -4,12 +4,40 @@ import ElementPlus from 'element-plus';
 import 'element-plus/dist/index.css';
 import App from './App.vue';
 import router from './router/router';
+import i18n from './i18n';
 
 const app = createApp(App);
 app.use(createPinia());
 app.use(ElementPlus);
 app.use(router);
-app.mount('#app');
+app.use(i18n);
+
+// 应用持久化的 locale
+// 以主进程 store 为权威源（localStorage 仅作同步快速缓存，可能与 store 不同步）
+// 先用 localStorage 做同步快速应用，再异步从主进程 store 纠正后挂载，避免首帧语言错误
+try {
+    const cachedLocale = localStorage.getItem('canbox.locale');
+    if (cachedLocale === 'zh-CN' || cachedLocale === 'en-US') {
+        i18n.global.locale.value = cachedLocale;
+    }
+} catch (e) {
+    console.warn('[i18n] Failed to read cached locale:', e);
+}
+
+(async () => {
+    try {
+        const savedLang = await window.api.developer.settingsGet('language');
+        if (savedLang === 'zh-CN' || savedLang === 'en-US') {
+            if (savedLang !== i18n.global.locale.value) {
+                i18n.global.locale.value = savedLang;
+            }
+            try { localStorage.setItem('canbox.locale', savedLang); } catch (e) {}
+        }
+    } catch (e) {
+        console.warn('[i18n] Failed to read language from store:', e);
+    }
+    app.mount('#app');
+})();
 
 // ====== 缩放快捷键（Ctrl+滚轮 / Ctrl++ / Ctrl+- / Ctrl+0） ======
 let currentZoom = 1.0;

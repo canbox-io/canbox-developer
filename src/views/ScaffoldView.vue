@@ -1,7 +1,9 @@
 <script setup>
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import { useI18n } from 'vue-i18n';
 
+const { t } = useI18n();
 const form = ref({
     name: '',
     description: '',
@@ -22,11 +24,11 @@ async function selectDirectory() {
 
 async function createProject() {
     if (!form.value.name) {
-        ElMessage.warning('请填写 APP 名称');
+        ElMessage.warning(t('scaffold.nameRequired'));
         return;
     }
     if (!form.value.targetDir) {
-        ElMessage.warning('请选择目标目录');
+        ElMessage.warning(t('scaffold.dirRequired'));
         return;
     }
 
@@ -41,10 +43,10 @@ async function createProject() {
             }
         );
         if (result.success) {
-            ElMessage.success('项目创建成功');
+            ElMessage.success(t('scaffold.createSuccess'));
             form.value = { name: '', description: '', author: '', targetDir: '' };
         } else {
-            ElMessage.error(result.error || '创建失败');
+            ElMessage.error(result.error || t('scaffold.createFailed'));
         }
     } finally {
         creating.value = false;
@@ -55,30 +57,30 @@ async function createProject() {
 <template>
     <div class="scaffold-view">
         <header class="view-header">
-            <h1>新建项目</h1>
-            <el-button text @click="$router.push('/')">&larr; 返回</el-button>
+            <h1>{{ t('scaffold.title') }}</h1>
+            <el-button text @click="$router.push('/')">&larr; {{ t('scaffold.back') }}</el-button>
         </header>
         <main class="view-body">
             <el-form :model="form" label-width="100px" style="max-width: 500px;">
-                <el-form-item label="APP 名称">
-                    <el-input v-model="form.name" placeholder="my-app" />
+                <el-form-item :label="t('scaffold.appName')">
+                    <el-input v-model="form.name" :placeholder="t('scaffold.appNamePlaceholder')" />
                 </el-form-item>
-                <el-form-item label="描述">
-                    <el-input v-model="form.description" placeholder="APP 描述" />
+                <el-form-item :label="t('scaffold.description')">
+                    <el-input v-model="form.description" :placeholder="t('scaffold.descriptionPlaceholder')" />
                 </el-form-item>
-                <el-form-item label="作者">
-                    <el-input v-model="form.author" placeholder="作者" />
+                <el-form-item :label="t('scaffold.author')">
+                    <el-input v-model="form.author" :placeholder="t('scaffold.authorPlaceholder')" />
                 </el-form-item>
-                <el-form-item label="目标目录">
-                    <el-input v-model="form.targetDir" placeholder="选择目录" readonly>
+                <el-form-item :label="t('scaffold.targetDir')">
+                    <el-input v-model="form.targetDir" :placeholder="t('scaffold.targetDirPlaceholder')" readonly>
                         <template #append>
-                            <el-button @click="selectDirectory">浏览</el-button>
+                            <el-button @click="selectDirectory">{{ t('scaffold.browse') }}</el-button>
                         </template>
                     </el-input>
                 </el-form-item>
                 <el-form-item>
                     <el-button type="primary" :loading="creating" @click="createProject">
-                        创建
+                        {{ t('scaffold.create') }}
                     </el-button>
                 </el-form-item>
             </el-form>

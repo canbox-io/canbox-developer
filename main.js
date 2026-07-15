@@ -484,6 +484,21 @@ ipcMain.handle('developer.zoom.get', async () => {
     return { success: true, factor: getSettingsStore().get('zoomFactor') || 1.0 };
 });
 
+// ====== 设置（通用 key-value，用于语言等偏好持久化）======
+
+ipcMain.handle('developer.settings.get', async (_e, key) => {
+    return getSettingsStore().get(key);
+});
+
+ipcMain.handle('developer.settings.set', async (_e, key, value) => {
+    getSettingsStore().set(key, value);
+    return { success: true };
+});
+
+ipcMain.handle('developer.settings.getAll', async () => {
+    return getSettingsStore().store || {};
+});
+
 ipcMain.handle('developer.zoom.set', async (_e, factor) => {
     const clamped = Math.max(0.5, Math.min(2.0, Math.round(factor * 10) / 10));
     getSettingsStore().set('zoomFactor', clamped);
