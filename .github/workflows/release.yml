@@ -36,10 +36,22 @@ jobs:
       - name: Pack canbox zip
         run: node scripts/canbox-publish.js --source . --resources dist/linux-unpacked/resources/ --out release/
 
+      - name: Extract changelog for this version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; print; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > changelog-extract.md
+          echo "Extracted changelog:"
+          cat changelog-extract.md
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: release/*.zip
+          body_path: changelog-extract.md
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
