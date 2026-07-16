@@ -4,6 +4,24 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.1.2] - 2026-07-16
+
+### docs | 文档 / Documentation
+
+将「发布」功能重命名为「打包分发」，补充分发渠道说明与隐私安全场景
+说明打包分发的本质：不构建、不产生 asar，仅做标准化压缩
+
+Rename "Publish" to "Pack for Distribution", add distribution channels and privacy/security scenarios
+Clarify the essence of pack-for-distribution: no build, no asar generation, only standardized compression
+
+### refactor | 重构 / Refactoring
+
+将 GUI、i18n、对话框标题中的「发布」文案统一修改为「打包分发」
+解除对 electron-builder 的工具绑定，改为通用表述
+
+Unify "Publish" wording to "Pack for Distribution" across GUI, i18n, and dialog titles
+Decouple from electron-builder binding, use generic wording
+
 ## [0.1.1] - 2026-07-15
 
 ### feat | 新功能 / Features
