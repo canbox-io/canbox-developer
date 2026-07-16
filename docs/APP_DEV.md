@@ -1,6 +1,6 @@
 # Canbox APP 开发指南
 
-本文档面向使用 Canbox 平台开发 APP 的开发者，描述 APP 的项目结构、package.json 元数据约定、canbox-core API 用法以及调试与发布流程。
+本文档面向使用 Canbox 平台开发 APP 的开发者，描述 APP 的项目结构、package.json 元数据约定、canbox-core API 用法以及调试与打包分发流程。
 
 ## 核心前提：APP 是标准 Electron 应用
 
@@ -17,7 +17,7 @@
 ### 不使用 canbox-core / canbox-developer 的影响
 
 - **不使用 canbox-core**：APP 无法调用 `window.api.store`、`window.api.db` 等平台服务，需要自行实现数据持久化（如用 electron-store、lowdb、SQLite 等）。APP 的 Electron 应用本质不受影响。
-- **不使用 canbox-developer**：APP 无法通过 GUI 一键调试/打包，但可以用 `electron .` 或 `electron-builder` 自行启动和打包。canbox-developer 提供的 `NODE_ENV=development` 等环境变量便利也不会自动获得，APP 需自行实现环境判断（见下文「NODE_ENV」一节）。
+- **不使用 canbox-developer**：APP 无法通过 GUI 一键调试/打包，但可以用 `electron .` 或任意 Electron 打包工具（如 electron-builder、electron-forge 等）自行启动和打包。canbox-developer 提供的 `NODE_ENV=development` 等环境变量便利也不会自动获得，APP 需自行实现环境判断（见下文「NODE_ENV」一节）。
 - **完全不使用两者**：APP 就是一个普通的 Electron 应用，可以独立分发、独立运行。只是无法接入 canbox 平台的管理和分发体系。
 
 ### 运行方式
@@ -494,10 +494,10 @@ if (isDev) {
 4. **dev server 端口由 APP 自己决定**，在 `package.json` 的 `scripts.dev` 中配置（如 `vite --port 5173`）
 5. **没有前端构建步骤的 APP**（纯静态 HTML）：可以始终用 `loadFile`，无需区分环境
 
-### 发布流程
+### 打包分发流程
 
-1. 开发者在终端跑 electron-builder 打包 → 得到 `resources/` 目录（`app.asar` + 可能的 `app.asar.unpacked/`）
-2. 在 canbox-developer 点「发布」 → 选择 `resources/` 目录
+1. 开发者在终端用任意 Electron 打包工具（如 electron-builder、electron-forge 等）打包 → 得到 `resources/` 目录（`app.asar` + 可能的 `app.asar.unpacked/`）
+2. 在 canbox-developer 点「打包分发」 → 选择 `resources/` 目录
 3. developer 自动从源码目录提取 `package.json` 和 `logo.png`
 4. 按 canbox 标准结构压 zip：
    ```
@@ -527,11 +527,11 @@ canbox-manager 导入 zip 时：
 
 ### 自动发布（CI/CD）
 
-手动发布流程适合偶尔操作，频繁发版建议用 CI/CD 自动化。Canbox 提供了 `canbox-publish.js` CLI 工具，可在 CI 环境中完成标准化 zip 打包。
+手动打包流程适合偶尔操作，频繁发版建议用 CI/CD 自动化。Canbox 提供了 `canbox-publish.js` CLI 工具，可在 CI 环境中完成标准化 zip 打包。
 
 #### canbox-publish.js CLI
 
-位于 `canbox-developer/scripts/canbox-publish.js`，从 electron-builder 构建产物中提取 app.asar，按 canbox 标准结构打包为 zip。与 canbox-developer GUI 的「发布」按钮共用同一份打包逻辑，确保产物一致。
+位于 `canbox-developer/scripts/canbox-publish.js`，从 APP 构建产物中提取 app.asar，按 canbox 标准结构打包为 zip。与 canbox-developer GUI 的「打包分发」按钮共用同一份打包逻辑，确保产物一致。
 
 ```bash
 # 用法
@@ -541,7 +541,7 @@ node canbox-publish.js --source <源码目录> --resources <构建产物目录> 
 node canbox-publish.js --source . --resources dist/linux-unpacked/resources/ --out release/
 ```
 
-**前置条件**：APP 需在 `package.json` 中配置 electron-builder 的 `build` 字段，至少包含 `dir` target 以产出 `app.asar`。
+**前置条件**：APP 需在 `package.json` 中配置所用打包工具的构建字段（如 electron-builder 的 `build` 字段），至少包含 `dir` target 以产出 `app.asar`。
 
 #### 场景一：Canbox APP（仅 zip）
 
