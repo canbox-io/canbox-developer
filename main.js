@@ -125,7 +125,7 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
 ipcMain.handle('developer.apps.publish', async (_e, sourceDir) => {
     // 弹出目录选择对话框，选构建产物目录（含 app.asar 的目录）
     const result = await dialog.showOpenDialog({
-        title: '选择 APP 构建产物目录（包含 app.asar 的目录，通常为 dist/xxx-unpacked/resources/）',
+        title: '打包分发：将已有的 app.asar 按标准结构压成 zip。请先完成 npm run dist 构建，再选择构建产物目录（含 app.asar，通常为 dist/xxx-unpacked/resources/）',
         defaultPath: sourceDir,
         properties: ['openDirectory']
     });
