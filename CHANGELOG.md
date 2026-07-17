@@ -4,6 +4,20 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.1.3] - 2026-07-17
+
+### feat | 新功能 / Features
+
+支持 .canbox-app 平台配置文件，Electron 升级至 42.5.1
+
+Support .canbox-app platform config file, upgrade Electron to 42.5.1
+
+### fix | 问题修复 / Bug Fixes
+
+打包时保留 logo 相对路径，与 package.json 声明一致
+
+Preserve logo relative path in zip to match package.json declaration
+
 ## [0.1.2] - 2026-07-16
 
 ### docs | 文档 / Documentation
