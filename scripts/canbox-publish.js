@@ -105,14 +105,16 @@ function packCanboxZip(sourceDir, resourcesDir, outDir) {
         // 3. package.json（从源码目录）
         zip.addLocalFile(pkgPath, '');
 
-        // 4. logo（从源码目录自动探测）
+        // 4. logo（从源码目录自动探测，保留相对路径以匹配 package.json 声明）
         const logoCandidates = pkg.logo
             ? [pkg.logo]
             : ['logo.png', 'logo.svg', 'icon.png', 'favicon.png'];
         for (const candidate of logoCandidates) {
             const logoFile = path.join(sourceDir, candidate);
             if (fs.existsSync(logoFile)) {
-                zip.addLocalFile(logoFile, '');
+                // 保留相对目录结构，使 zip 内路径与 pkg.logo 一致
+                const zipDir = path.dirname(candidate);
+                zip.addLocalFile(logoFile, zipDir);
                 break;
             }
         }
