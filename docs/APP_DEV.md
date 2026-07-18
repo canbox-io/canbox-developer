@@ -50,7 +50,7 @@ my-app/
 ├── preload.js            # 需要 canbox API 时使用（contextBridge 暴露）
 ├── index.html            # 渲染进程入口
 ├── logo.png              # 可选，APP 图标
-├── .canbox-app           # 可选，Canbox APP 标识文件（空文件）
+├── .canbox-app           # Canbox 平台配置文件（JSON，声明 electron 版本等）
 └── src/                  # 前端源码
     └── ...
 ```
@@ -304,6 +304,68 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 ### platforms 用途
 
 `platforms` 声明 APP 支持的操作系统。不配置则默认全平台支持。
+
+## .canbox-app 平台配置
+
+`.canbox-app` 是 APP 接入 canbox 平台的配置文件（JSON 格式），与 package.json 分离：
+
+- **package.json**：APP 作为独立 Electron 应用的标准元数据（npm 生态，`name`/`version`/`main` 等）
+- **.canbox-app**：canbox 平台配置（electron 版本声明、APP 类型等）
+
+删除 `.canbox-app`，APP 即回归纯 Electron 应用，不影响其独立性。
+
+### 文件格式
+
+```json
+{
+    "version": 1,
+    "electron": {
+        "range": "^42.5.1"
+    },
+    "type": "native",
+    "webApp": null
+}
+```
+
+### 字段说明
+
+| 字段                | 必需 | 类型   | 说明                                                                 |
+| ------------------- | ---- | ------ | -------------------------------------------------------------------- |
+| `version`         | 是   | number | 配置格式版本，当前为 `1`                                           |
+| `electron.range`  | 是   | string | Electron 版本范围（semver），必须命中 canbox 官方白名单              |
+| `type`            | 是   | string | APP 类型：`native`（普通 APP）或 `web`（网页应用）                 |
+| `webApp`          | 否   | object | `type=web` 时的网页应用配置（url、isPwa、menuBar 等），native 为 null |
+
+### electron 版本选择
+
+canbox 官方维护一份 Electron 版本白名单（`ALLOWED_ELECTRON`），APP 声明的 `electron.range` 必须命中白名单中的版本。
+
+**版本来源：**
+
+- **builtin**：安装包自带的版本（程序目录 `electron-{ver}/`），唯一
+- **downloaded**：用户在线下载的版本（用户数据目录 `runtime/electron-{ver}/`），多个
+
+**选择算法：**
+
+1. 读取 APP 的 `.canbox-app` 中的 `electron.range`
+2. 校验 range 命中白名单
+3. 从 builtin + downloaded 中选择满足 range 的最高版本
+4. 若无已安装版本满足，提示用户下载对应版本
+
+**示例：**
+
+```json
+// 使用 builtin 版本（安装包自带）
+"electron": { "range": "^42.5.1" }
+
+// 精确指定版本
+"electron": { "range": "42.5.1" }
+```
+
+### native APP 与 web APP
+
+- **native APP**（`type: "native"`）：标准 Electron 应用，通过 canbox-core 注入启动，可使用 store/db 等平台服务
+- **web APP**（`type: "web"`）：网址封装为 Electron 网页壳，不注入 canbox-core，使用独立 userData。由 canbox-manager 的「创建网页应用」功能自动生成，`webApp` 字段包含 url、isPwa、menuBar 等配置
 
 ## canbox-core API
 

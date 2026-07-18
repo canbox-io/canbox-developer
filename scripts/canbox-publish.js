@@ -18,6 +18,7 @@
  *   ├── app.asar
  *   ├── app.asar.unpacked/    （如有原生模块）
  *   ├── package.json
+ *   ├── .canbox-app           （canbox 平台配置）
  *   └── logo.png
  *
  * 依赖：adm-zip
@@ -105,7 +106,13 @@ function packCanboxZip(sourceDir, resourcesDir, outDir) {
         // 3. package.json（从源码目录）
         zip.addLocalFile(pkgPath, '');
 
-        // 4. logo（从源码目录自动探测，保留相对路径以匹配 package.json 声明）
+        // 4. .canbox-app（canbox 平台配置，从源码目录）
+        const canboxAppPath = path.join(sourceDir, '.canbox-app');
+        if (fs.existsSync(canboxAppPath)) {
+            zip.addLocalFile(canboxAppPath, '');
+        }
+
+        // 5. logo（从源码目录自动探测，保留相对路径以匹配 package.json 声明）
         const logoCandidates = pkg.logo
             ? [pkg.logo]
             : ['logo.png', 'logo.svg', 'icon.png', 'favicon.png'];

@@ -21,6 +21,7 @@ const env = global.__CANBOX_ENV__;
 const USERS_PATH = env.usersPath;
 // canbox-core 根目录路径（用于 require store 等模块）
 const CORE_PATH = global.__CANBOX_CORE_PATH__;
+const { createNativeMeta, writeCanboxMeta } = require(path.join(CORE_PATH, 'lib', 'canbox-meta'));
 
 let mainWindow = null;
 
@@ -162,8 +163,10 @@ ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
             fs.mkdirSync(targetDir, { recursive: true });
         }
 
-        // 创建 .canbox-app 标识文件
-        fs.writeFileSync(path.join(targetDir, '.canbox-app'), '');
+        // 创建 .canbox-app（canbox 平台配置，JSON 格式）
+        // options.electronRange 优先，默认用当前 builtin electron 版本
+        const electronRange = options.electronRange || ('^' + process.versions.electron);
+        writeCanboxMeta(targetDir, createNativeMeta(electronRange));
 
         // 创建 package.json
         const pkg = {
@@ -184,7 +187,7 @@ ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
             },
             devDependencies: {
                 '@vitejs/plugin-vue': '^5.1.2',
-                electron: '^41.2.1',
+                electron: '^42.5.1',
                 vite: '^5.4.6'
             }
         };
