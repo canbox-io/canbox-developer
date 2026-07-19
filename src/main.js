@@ -28,6 +28,13 @@ try {
 // 主进程 store 作为权威源在挂载后异步纠正）
 app.mount('#app');
 
+// 移除首屏 loading 动画（Vue 挂载后实际内容已渲染）
+const _loading = document.getElementById('app-loading');
+if (_loading) {
+    _loading.classList.add('hide');
+    setTimeout(() => _loading.remove(), 200);
+}
+
 // 挂载后异步从主进程 store 纠正 locale
 window.api.developer.settingsGet('language').then(savedLang => {
     if (savedLang === 'zh-CN' || savedLang === 'en-US') {
