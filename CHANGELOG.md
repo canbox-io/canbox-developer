@@ -4,6 +4,26 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.1.4] - 2026-07-19
+
+### feat | 新功能 / Features
+
+脚手架创建新增 Electron 版本下拉选择，版本来自 canbox-core 白名单
+添加已有 APP 时检测 .canbox-app，缺失或缺少 electron.range 时提示用户选择版本并自动写入配置
+新增 developer.electron.listAllowed 与 developer.apps.writeCanboxMeta IPC
+
+Scaffold creation adds Electron version dropdown, sourced from canbox-core whitelist
+Detect .canbox-app when adding existing APP; prompt user to select version and auto-write config if missing or without electron.range
+Add developer.electron.listAllowed and developer.apps.writeCanboxMeta IPCs
+
+### fix | 问题修复 / Bug Fixes
+
+修复点击「添加 APP」按钮时 MouseEvent 被误传为路径参数导致的类型错误
+统一错误提示组件为 notification.js，与 manager 风格保持一致
+
+Fix TypeError when clicking "Add APP" button caused by MouseEvent being passed as path parameter
+Unify error notification component to notification.js to match manager's style
+
 ## [0.1.3] - 2026-07-17
 
 ### feat | 新功能 / Features
