@@ -675,7 +675,6 @@ function createWindow() {
         minWidth: 800,
         minHeight: 600,
         title: 'Canbox Developer',
-        show: false,
         icon: path.join(__dirname, 'logo.png'),
         backgroundColor: '#f7f8fa',
         webPreferences: {
