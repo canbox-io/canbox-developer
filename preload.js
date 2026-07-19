@@ -37,8 +37,15 @@ const api = {
 
     // === Developer 专用 API ===
     developer: {
-        // 添加开发项目（选择 package.json）
-        addApp: () => ipcRenderer.invoke('developer.apps.add'),
+        // 添加开发项目（选择 package.json，可选传入 sourceDir 跳过选择对话框）
+        addApp: (sourceDir) => ipcRenderer.invoke('developer.apps.add', sourceDir),
+
+        // 为 APP 写入 .canbox-app（添加已有 APP 时缺失则由前端弹窗选版本后调用）
+        writeCanboxMeta: (sourceDir, electronRange, type) =>
+            ipcRenderer.invoke('developer.apps.writeCanboxMeta', sourceDir, electronRange, type),
+
+        // 查询 canbox 白名单中的 electron 版本列表（供前端下拉选择）
+        electronListAllowed: () => ipcRenderer.invoke('developer.electron.listAllowed'),
 
         // 列出所有开发项目
         listApps: () => ipcRenderer.invoke('developer.apps.list'),

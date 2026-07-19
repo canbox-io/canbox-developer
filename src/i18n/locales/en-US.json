@@ -22,7 +22,15 @@
         "publish": "Pack for Distribution",
         "openDataDir": "Open Data Directory",
         "clearData": "Clear Data",
-        "remove": "Remove"
+        "remove": "Remove",
+        "electronRangeTitle": "Select Electron Version",
+        "electronRangePrompt": "App \"{name}\" is missing .canbox-app config. Please select a canbox-whitelisted Electron version, which will be written to the app's .canbox-app file.",
+        "electronRangeInvalid": "Please select one of the available versions",
+        "noAllowedElectron": "No Electron version is whitelisted in canbox, cannot add",
+        "confirmWrite": "Write and Add",
+        "cancel": "Cancel",
+        "writeMetaFailed": "Failed to write .canbox-app",
+        "metaWritten": ".canbox-app written, continuing to add app"
     },
     "scaffold": {
         "title": "New Project",

@@ -355,12 +355,21 @@ canbox 官方维护一份 Electron 版本白名单（`ALLOWED_ELECTRON`），APP
 **示例：**
 
 ```json
-// 使用 builtin 版本（安装包自带）
-"electron": { "range": "^42.5.1" }
-
-// 精确指定版本
+// 推荐写法：精确指定版本（锁死，避免 ^ 范围漂移导致命不中白名单）
 "electron": { "range": "42.5.1" }
+
+// 也支持 semver range（不推荐，可能因白名单未同步新版而启动失败）
+"electron": { "range": "^42.5.1" }
 ```
+
+### .canbox-app 的产生方式
+
+APP 的 `.canbox-app` 通过以下两种方式产生：
+
+1. **canbox-developer 脚手架创建**：使用「新建项目」功能时，开发者从下拉框选择 Electron 版本（选项来自 canbox 白名单），developer 自动写入 `.canbox-app`
+2. **添加已有 APP 时补写**：若被添加的 APP 缺失 `.canbox-app` 或 `electron.range` 无效，developer 会弹窗让开发者选择版本，确认后自动写入
+
+> **推荐**：APP 源码目录里直接维护好 `.canbox-app`，避免每次添加都要补写。`canbox-publish` 打包时会从源码目录读取 `.canbox-app` 并打入 zip。
 
 ### native APP 与 web APP
 

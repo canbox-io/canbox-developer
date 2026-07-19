@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "electron": {
+        "range": "42.5.1"
+    },
+    "type": "native",
+    "webApp": null
+}

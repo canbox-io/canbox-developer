@@ -1,17 +1,19 @@
 <script setup>
-import { ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ref, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
+import notification from '@/utils/notification';
 
 const { t } = useI18n();
 const form = ref({
     name: '',
     description: '',
     author: '',
-    targetDir: ''
+    targetDir: '',
+    electronVersion: ''
 });
 
 const creating = ref(false);
+const electronVersions = ref([]);
 
 async function selectDirectory() {
     const result = await window.api.developer.showOpenDialog({
@@ -24,11 +26,15 @@ async function selectDirectory() {
 
 async function createProject() {
     if (!form.value.name) {
-        ElMessage.warning(t('scaffold.nameRequired'));
+        notification.warning(t('scaffold.nameRequired'));
         return;
     }
     if (!form.value.targetDir) {
-        ElMessage.warning(t('scaffold.dirRequired'));
+        notification.warning(t('scaffold.dirRequired'));
+        return;
+    }
+    if (!form.value.electronVersion) {
+        notification.warning(t('scaffold.electronRequired'));
         return;
     }
 
@@ -39,19 +45,30 @@ async function createProject() {
             {
                 name: form.value.name,
                 description: form.value.description,
-                author: form.value.author
+                author: form.value.author,
+                electronRange: form.value.electronVersion
             }
         );
         if (result.success) {
-            ElMessage.success(t('scaffold.createSuccess'));
-            form.value = { name: '', description: '', author: '', targetDir: '' };
+            notification.success(t('scaffold.createSuccess'));
+            form.value = { name: '', description: '', author: '', targetDir: '', electronVersion: '' };
         } else {
-            ElMessage.error(result.error || t('scaffold.createFailed'));
+            notification.error(result.error || t('scaffold.createFailed'));
         }
     } finally {
         creating.value = false;
     }
 }
+
+onMounted(async () => {
+    // 加载 canbox 白名单中的 electron 版本列表
+    const result = await window.api.developer.electronListAllowed();
+    if (result.success && result.versions.length > 0) {
+        electronVersions.value = result.versions;
+        // 默认选第一个（最高版本，通常也是 builtin 版本）
+        form.value.electronVersion = result.versions[0];
+    }
+});
 </script>
 
 <template>
@@ -77,6 +94,16 @@ async function createProject() {
                             <el-button @click="selectDirectory">{{ t('scaffold.browse') }}</el-button>
                         </template>
                     </el-input>
+                </el-form-item>
+                <el-form-item :label="t('scaffold.electronVersion')">
+                    <el-select v-model="form.electronVersion" :placeholder="t('scaffold.electronPlaceholder')" style="width: 100%;">
+                        <el-option
+                            v-for="ver in electronVersions"
+                            :key="ver"
+                            :label="ver"
+                            :value="ver"
+                        />
+                    </el-select>
                 </el-form-item>
                 <el-form-item>
                     <el-button type="primary" :loading="creating" @click="createProject">

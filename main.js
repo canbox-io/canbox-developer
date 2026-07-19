@@ -21,7 +21,7 @@ const env = global.__CANBOX_ENV__;
 const USERS_PATH = env.usersPath;
 // canbox-core 根目录路径（用于 require store 等模块）
 const CORE_PATH = global.__CANBOX_CORE_PATH__;
-const { createNativeMeta, writeCanboxMeta } = require(path.join(CORE_PATH, 'lib', 'canbox-meta'));
+const { createNativeMeta, createWebMeta, writeCanboxMeta, readCanboxMeta } = require(path.join(CORE_PATH, 'lib', 'canbox-meta'));
 
 let mainWindow = null;
 
@@ -164,8 +164,8 @@ ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
         }
 
         // 创建 .canbox-app（canbox 平台配置，JSON 格式）
-        // options.electronRange 优先，默认用当前 builtin electron 版本
-        const electronRange = options.electronRange || ('^' + process.versions.electron);
+        // options.electronRange 优先，默认用当前 builtin electron 版本（锁死，不带 ^）
+        const electronRange = options.electronRange || process.versions.electron;
         writeCanboxMeta(targetDir, createNativeMeta(electronRange));
 
         // 创建 package.json
@@ -347,18 +347,20 @@ function readAppInfo(sourceDir) {
  * 选择 package.json 文件，加入开发项目列表
  * store 只存 {appId, sourceDir, addedAt}，元数据 list 时实时读
  */
-ipcMain.handle('developer.apps.add', async () => {
-    const result = await dialog.showOpenDialog({
-        title: '选择 APP 的 package.json',
-        filters: [{ name: 'package.json', extensions: ['json'] }],
-        properties: ['openFile']
-    });
-    if (result.canceled || result.filePaths.length === 0) {
-        return { success: false, canceled: true };
+ipcMain.handle('developer.apps.add', async (_e, presetSourceDir) => {
+    // presetSourceDir: 可选，由前端"选版本后重试"流程传入，跳过文件选择对话框
+    let sourceDir = presetSourceDir;
+    if (!sourceDir) {
+        const result = await dialog.showOpenDialog({
+            title: '选择 APP 的 package.json',
+            filters: [{ name: 'package.json', extensions: ['json'] }],
+            properties: ['openFile']
+        });
+        if (result.canceled || result.filePaths.length === 0) {
+            return { success: false, canceled: true };
+        }
+        sourceDir = path.dirname(result.filePaths[0]);
     }
-
-    const pkgPath = result.filePaths[0];
-    const sourceDir = path.dirname(pkgPath);
 
     try {
         const info = readAppInfo(sourceDir);
@@ -367,6 +369,19 @@ ipcMain.handle('developer.apps.add', async () => {
         }
         if (!info.appId) {
             return { success: false, error: 'package.json 必须有 name 字段' };
+        }
+
+        // 检查 .canbox-app 是否存在且 electron.range 有效
+        // 不满足时返回结构化错误，让前端弹窗让用户选版本并写入
+        const meta = readCanboxMeta(sourceDir);
+        if (!meta || !meta.electron || !meta.electron.range) {
+            return {
+                success: false,
+                code: 'ELECTRON_RANGE_REQUIRED',
+                sourceDir,
+                appId: info.appId,
+                appInfo: info
+            };
         }
 
         const devApps = getDevAppsStore();
@@ -388,6 +403,48 @@ ipcMain.handle('developer.apps.add', async () => {
 
         // 返回时合并元数据
         return { success: true, app: { ...record, ...info } };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+/**
+ * 查询 canbox 纳入白名单的 electron 版本列表（供前端下拉选择）
+ * 返回版本号数组，按降序排列
+ */
+ipcMain.handle('developer.electron.listAllowed', async () => {
+    try {
+        const { ALLOWED_ELECTRON } = require(path.join(CORE_PATH, 'lib', 'electron-selector'));
+        const versions = Object.keys(ALLOWED_ELECTRON).sort((a, b) => {
+            const pa = a.split('.').map(Number);
+            const pb = b.split('.').map(Number);
+            for (let i = 0; i < 3; i++) {
+                if (pa[i] !== pb[i]) return pb[i] - pa[i];
+            }
+            return 0;
+        });
+        return { success: true, versions };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+/**
+ * 为 APP 写入 .canbox-app（添加已有 APP 时，缺失 .canbox-app 由前端弹窗选版本后调用）
+ * @param {string} sourceDir - APP 源码目录
+ * @param {string} electronRange - electron 版本范围（如 '42.5.1'）
+ * @param {string} [type='native'] - APP 类型，native | web
+ */
+ipcMain.handle('developer.apps.writeCanboxMeta', async (_e, sourceDir, electronRange, type) => {
+    try {
+        if (!sourceDir || !electronRange) {
+            return { success: false, error: 'sourceDir 和 electronRange 必填' };
+        }
+        const meta = type === 'web'
+            ? createWebMeta(electronRange, null)
+            : createNativeMeta(electronRange);
+        writeCanboxMeta(sourceDir, meta);
+        return { success: true };
     } catch (e) {
         return { success: false, error: e.message };
     }

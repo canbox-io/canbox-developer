@@ -1,8 +1,10 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessageBox, ElSelect, ElOption } from 'element-plus';
+import { h } from 'vue';
 import { useI18n } from 'vue-i18n';
+import notification from '@/utils/notification';
 
 const router = useRouter();
 const { t } = useI18n();
@@ -25,23 +27,69 @@ async function loadProjects() {
     projects.value = await window.api.developer.listApps();
 }
 
-async function addApp() {
-    const result = await window.api.developer.addApp();
+async function addApp(presetSourceDir) {
+    // presetSourceDir 由"选版本后重试"流程传入；模板 @click 调用时是 MouseEvent，需过滤
+    if (typeof presetSourceDir !== 'string') presetSourceDir = undefined;
+    const result = await window.api.developer.addApp(presetSourceDir);
     if (result.canceled) return;
     if (result.success) {
-        ElMessage.success(t('projects.added', { name: result.app.name }));
+        notification.success(t('projects.added', { name: result.app.name }));
         await loadProjects();
-    } else {
-        ElMessage.error(result.error || t('projects.addFailed'));
+        return;
     }
+    // 缺失 .canbox-app：弹窗让用户选 electron 版本，写入后重试添加
+    if (result.code === 'ELECTRON_RANGE_REQUIRED') {
+        const { sourceDir, appInfo } = result;
+        // 拉取白名单版本
+        const allowed = await window.api.developer.electronListAllowed();
+        if (!allowed.success || allowed.versions.length === 0) {
+            notification.error(t('projects.noAllowedElectron'));
+            return;
+        }
+        // 弹窗：下拉选版本（用 h 函数渲染 el-select）
+        const selectedVersion = ref(allowed.versions[0]);
+        try {
+            await ElMessageBox({
+                title: t('projects.electronRangeTitle'),
+                message: () => [
+                    h('p', { style: 'margin: 0 0 12px 0; color: #606266; line-height: 1.6;' },
+                        t('projects.electronRangePrompt', { name: appInfo.name })),
+                    h(ElSelect, {
+                        modelValue: selectedVersion.value,
+                        'onUpdate:modelValue': (v) => { selectedVersion.value = v; },
+                        style: 'width: 100%;'
+                    }, () => allowed.versions.map(v => h(ElOption, { label: v, value: v })))
+                ],
+                confirmButtonText: t('projects.confirmWrite'),
+                cancelButtonText: t('projects.cancel'),
+                showCancelButton: true,
+                closeOnClickModal: false
+            });
+            // 用户确认
+            if (!selectedVersion.value) return;
+            // 写入 .canbox-app
+            const writeResult = await window.api.developer.writeCanboxMeta(sourceDir, selectedVersion.value, 'native');
+            if (!writeResult.success) {
+                notification.error(writeResult.error || t('projects.writeMetaFailed'));
+                return;
+            }
+            notification.success(t('projects.metaWritten'));
+            // 用已选的 sourceDir 重新调用 addApp，跳过文件选择
+            await addApp(sourceDir);
+        } catch (e) {
+            // 用户取消
+        }
+        return;
+    }
+    notification.error(result.error || t('projects.addFailed'));
 }
 
 async function launchApp(app) {
     const result = await window.api.developer.launchApp(app.sourceDir);
     if (result.success) {
-        ElMessage.success(t('projects.launched', { name: app.name }));
+        notification.success(t('projects.launched', { name: app.name }));
     } else {
-        ElMessage.error(result.error || t('projects.launchFailed'));
+        notification.error(result.error || t('projects.launchFailed'));
     }
 }
 
@@ -51,9 +99,9 @@ async function publishApp(app) {
         const result = await window.api.developer.publishApp(app.sourceDir);
         if (result.canceled) return;
         if (result.success) {
-            ElMessage.success(t('projects.published', { path: result.path }));
+            notification.success(t('projects.published', { path: result.path }));
         } else {
-            ElMessage.error(result.error || t('projects.publishFailed'));
+            notification.error(result.error || t('projects.publishFailed'));
         }
     } finally {
         packaging.value[app.appId] = false;
@@ -65,9 +113,9 @@ async function clearData(app) {
         await ElMessageBox.confirm(t('projects.confirmClearData', { name: app.name }), t('projects.confirmTitle'), { type: 'warning' });
         const result = await window.api.developer.clearData(app.appId);
         if (result.success) {
-            ElMessage.success(t('projects.dataCleared'));
+            notification.success(t('projects.dataCleared'));
         } else {
-            ElMessage.error(result.error || t('projects.clearFailed'));
+            notification.error(result.error || t('projects.clearFailed'));
         }
     } catch (e) {
         // 用户取消
@@ -79,10 +127,10 @@ async function removeApp(app) {
         await ElMessageBox.confirm(t('projects.confirmRemoveApp', { name: app.name }), t('projects.confirmTitle'), { type: 'warning' });
         const result = await window.api.developer.removeApp(app.appId);
         if (result.success) {
-            ElMessage.success(t('projects.removed'));
+            notification.success(t('projects.removed'));
             await loadProjects();
         } else {
-            ElMessage.error(result.error || t('projects.removeFailed'));
+            notification.error(result.error || t('projects.removeFailed'));
         }
     } catch (e) {
         // 用户取消
@@ -107,7 +155,7 @@ onMounted(() => {
         <header class="view-header">
             <h1>{{ t('projects.title') }}</h1>
             <div class="header-actions">
-                <el-button type="primary" @click="addApp">{{ t('projects.addApp') }}</el-button>
+                <el-button type="primary" @click="addApp()">{{ t('projects.addApp') }}</el-button>
                 <el-button circle @click="router.push('/settings')" :title="t('projects.settings')">
                     <span style="font-size: 18px;">⚙</span>
                 </el-button>

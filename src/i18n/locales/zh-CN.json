@@ -22,7 +22,15 @@
         "publish": "打包分发",
         "openDataDir": "打开数据目录",
         "clearData": "清除数据",
-        "remove": "移除"
+        "remove": "移除",
+        "electronRangeTitle": "选择 Electron 版本",
+        "electronRangePrompt": "APP「{name}」缺少 .canbox-app 配置，请选择一个 canbox 纳入白名单的 Electron 版本，将自动写入该 APP 的 .canbox-app 文件。",
+        "electronRangeInvalid": "请从可选版本中选择一个",
+        "noAllowedElectron": "canbox 未纳入任何 Electron 版本，无法添加",
+        "confirmWrite": "写入并添加",
+        "cancel": "取消",
+        "writeMetaFailed": "写入 .canbox-app 失败",
+        "metaWritten": ".canbox-app 已写入，继续添加 APP"
     },
     "scaffold": {
         "title": "新建项目",
