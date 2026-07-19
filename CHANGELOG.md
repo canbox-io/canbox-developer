@@ -24,6 +24,14 @@ Add developer.electron.listAllowed and developer.apps.writeCanboxMeta IPCs
 Fix TypeError when clicking "Add APP" button caused by MouseEvent being passed as path parameter
 Unify error notification component to notification.js to match manager's style
 
+### perf | 性能优化 / Performance
+
+优化启动流程，将 app.mount 提前至 IPC 调用前，避免 settingsGet 往返阻塞首帧
+将 appReady 调用从 ProjectsView 的 onMounted 移至 main.js 挂载后立即触发，省去懒加载 chunk 等待
+
+Optimize startup flow by moving app.mount before IPC calls to avoid settingsGet round-trip blocking first frame
+Move appReady call from ProjectsView's onMounted to main.js after mount to skip lazy-loaded chunk wait
+
 ## [0.1.3] - 2026-07-17
 
 ### feat | 新功能 / Features
