@@ -24,20 +24,22 @@ try {
     console.warn('[i18n] Failed to read cached locale:', e);
 }
 
-(async () => {
-    try {
-        const savedLang = await window.api.developer.settingsGet('language');
-        if (savedLang === 'zh-CN' || savedLang === 'en-US') {
-            if (savedLang !== i18n.global.locale.value) {
-                i18n.global.locale.value = savedLang;
-            }
-            try { localStorage.setItem('canbox.locale', savedLang); } catch (e) {}
+// 先挂载，避免 IPC 往返阻塞首帧（locale 由 localStorage 同步快速应用，
+// 主进程 store 作为权威源在挂载后异步纠正）
+app.mount('#app');
+window.api.developer.appReady().catch(() => {});
+
+// 挂载后异步从主进程 store 纠正 locale
+window.api.developer.settingsGet('language').then(savedLang => {
+    if (savedLang === 'zh-CN' || savedLang === 'en-US') {
+        if (savedLang !== i18n.global.locale.value) {
+            i18n.global.locale.value = savedLang;
         }
-    } catch (e) {
-        console.warn('[i18n] Failed to read language from store:', e);
+        try { localStorage.setItem('canbox.locale', savedLang); } catch (e) {}
     }
-    app.mount('#app');
-})();
+}).catch(e => {
+    console.warn('[i18n] Failed to read language from store:', e);
+});
 
 // ====== 缩放快捷键（Ctrl+滚轮 / Ctrl++ / Ctrl+- / Ctrl+0） ======
 let currentZoom = 1.0;

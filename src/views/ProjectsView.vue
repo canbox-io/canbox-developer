@@ -146,7 +146,6 @@ onMounted(() => {
         console.log('[canbox-developer] canbox-core 已加载');
     });
     loadProjects();
-    window.api.developer.appReady();
 });
 </script>
 
