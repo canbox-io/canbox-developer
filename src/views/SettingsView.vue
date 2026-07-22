@@ -134,6 +134,14 @@ async function openHomepage() {
                     <span class="about-value">{{ coreVersion || '-' }}</span>
                 </div>
                 <div class="about-item">
+                    <span class="label-text">{{ t('settings.license') }}</span>
+                    <span class="about-value">Apache-2.0</span>
+                </div>
+                <div class="about-item">
+                    <span class="label-text">{{ t('settings.author') }}</span>
+                    <span class="about-value">canbox-io</span>
+                </div>
+                <div class="about-item">
                     <a href="https://github.com/canbox-io/canbox-developer" target="_blank" @click.prevent="openHomepage">{{ t('settings.projectHomepage') }}</a>
                 </div>
             </el-card>

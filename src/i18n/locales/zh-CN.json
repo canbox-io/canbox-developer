@@ -60,6 +60,8 @@
         "zoomHint": "Ctrl+滚轮 / Ctrl++ / Ctrl+- / Ctrl+0 快捷调节，范围 0.5~2.0",
         "zoomReset": "重置",
         "about": "关于",
-        "projectHomepage": "项目主页"
+        "projectHomepage": "项目主页",
+        "license": "许可证",
+        "author": "作者"
     }
 }

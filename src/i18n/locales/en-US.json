@@ -60,6 +60,8 @@
         "zoomHint": "Ctrl+scroll / Ctrl++ / Ctrl+- / Ctrl+0 to adjust, range 0.5~2.0",
         "zoomReset": "Reset",
         "about": "About",
-        "projectHomepage": "Project Homepage"
+        "projectHomepage": "Project Homepage",
+        "license": "License",
+        "author": "Author"
     }
 }
