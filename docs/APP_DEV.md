@@ -320,7 +320,7 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 {
     "version": 1,
     "electron": {
-        "range": "^42.5.1"
+        "range": "42.5.1"
     },
     "type": "native",
     "webApp": null

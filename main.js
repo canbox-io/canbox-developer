@@ -187,7 +187,7 @@ ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
             },
             devDependencies: {
                 '@vitejs/plugin-vue': '^5.1.2',
-                electron: '^42.5.1',
+                electron: '42.5.1',
                 vite: '^5.4.6'
             }
         };
