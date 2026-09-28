@@ -81,6 +81,8 @@ const api = {
         // 原生能力（APP 自有，非 canbox-core 提供）
         showOpenDialog: (options) => ipcRenderer.invoke('developer.dialog.showOpenDialog', options),
         openUrl: (url) => ipcRenderer.invoke('developer.shell.openUrl', url),
+        // 打开本地文件/目录（shell.openPath，用于"打开所在目录"等场景）
+        openPath: (targetPath) => ipcRenderer.invoke('developer.shell.openPath', targetPath),
 
         // Vue 挂载完成通知
         appReady: () => ipcRenderer.invoke('developer.appReady')

@@ -99,7 +99,25 @@ async function publishApp(app) {
         const result = await window.api.developer.publishApp(app.sourceDir);
         if (result.canceled) return;
         if (result.success) {
-            notification.success(t('projects.published', { path: result.path }));
+            // 用模态对话框展示路径，避免 3s 自动消失导致用户错过
+            // 同时提供"打开所在目录"按钮，便于直接定位 zip
+            try {
+                await ElMessageBox.confirm(
+                    t('projects.publishedPrompt', { path: result.path }),
+                    t('projects.publishedTitle'),
+                    {
+                        confirmButtonText: t('projects.openFolder'),
+                        cancelButtonText: t('projects.close'),
+                        type: 'success',
+                        closeOnClickModal: false
+                    }
+                );
+                // 用户点击"打开所在目录"：打开 zip 所在目录
+                const folder = result.path.split('/').slice(0, -1).join('/') || '/';
+                await window.api.developer.openPath(folder);
+            } catch (_) {
+                // 用户点击"关闭"，无需处理
+            }
         } else {
             notification.error(result.error || t('projects.publishFailed'));
         }

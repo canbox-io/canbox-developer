@@ -28,32 +28,61 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * 获取 canbox-core 注入的 logger（log4js），写入 {usersPath}/logs/canbox.log
+ * 若 logger 未初始化（如 CLI 直接运行无 Electron 环境），降级为 console
+ * 注意：不在模块加载时获取，而是每次使用时动态获取——
+ * 因为 injection.js 的 logger.init() 在 app.whenReady() 之后异步执行，
+ * 模块加载时 logger 尚未就绪
+ */
+function _getLogger() {
+    try {
+        const corePath = global.__CANBOX_CORE_PATH__;
+        if (!corePath) return console;
+        const loggerModule = require(path.join(corePath, 'lib', 'logger'));
+        return loggerModule.get() || console;
+    } catch (_) {
+        return console;
+    }
+}
+const logger = {
+    info: (...args) => _getLogger().info(...args),
+    error: (...args) => _getLogger().error(...args)
+};
+
+/**
  * 按 canbox 标准结构打包 zip
  * @param {string} sourceDir - APP 源码目录（读取 package.json 和 logo）
  * @param {string} resourcesDir - electron-builder 构建产物目录（含 app.asar）
- * @param {string} [outDir] - zip 输出目录，默认源码目录同级
+ * @param {string} [outDir] - zip 输出目录，默认 {sourceDir}/dist/（dist 不存在则 fallback 到源码目录同级）
  * @returns {{success: boolean, path?: string, error?: string}}
  */
 function packCanboxZip(sourceDir, resourcesDir, outDir) {
+    logger.info('[publish] packCanboxZip: start, sourceDir=%s resourcesDir=%s outDir=%s', sourceDir, resourcesDir, outDir || '(auto)');
+
     // 检查 app.asar 存在
     const asarPath = path.join(resourcesDir, 'app.asar');
     if (!fs.existsSync(asarPath)) {
-        return { success: false, error: '所选目录中未找到 app.asar，请选择包含 app.asar 的目录' };
+        const err = '所选目录中未找到 app.asar，请选择包含 app.asar 的目录';
+        logger.error('[publish] packCanboxZip: asar not found at %s', asarPath);
+        return { success: false, error: err };
     }
 
     // 检查 app.asar.unpacked 是否存在（判断有无原生模块）
     const unpackedPath = path.join(resourcesDir, 'app.asar.unpacked');
     const hasUnpacked = fs.existsSync(unpackedPath);
+    logger.info('[publish] packCanboxZip: asar=%s unpacked=%s', asarPath, hasUnpacked ? unpackedPath : '(none)');
 
     // 从源码目录读 package.json
     const pkgPath = path.join(sourceDir, 'package.json');
     if (!fs.existsSync(pkgPath)) {
+        logger.error('[publish] packCanboxZip: package.json not found at %s', pkgPath);
         return { success: false, error: '源码目录中未找到 package.json' };
     }
 
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     const appIdentifier = pkg.id || pkg.name;
     const version = pkg.version || '0.0.0';
+    logger.info('[publish] packCanboxZip: pkg id=%s name=%s version=%s', pkg.id, pkg.name, version);
 
     // 推断平台（从 resources 父目录名，如 linux-unpacked → linux）
     let platformSuffix = '';
@@ -66,8 +95,18 @@ function packCanboxZip(sourceDir, resourcesDir, outDir) {
     }
 
     const zipName = `${appIdentifier}-${version}${platformSuffix}.zip`;
-    const outputDir = outDir || path.dirname(sourceDir);
+    // 输出目录优先级：显式传入 > {sourceDir}/dist/（如存在）> 源码目录同级
+    let outputDir = outDir;
+    if (!outputDir) {
+        const distDir = path.join(sourceDir, 'dist');
+        if (fs.existsSync(distDir) && fs.statSync(distDir).isDirectory()) {
+            outputDir = distDir;
+        } else {
+            outputDir = path.dirname(sourceDir);
+        }
+    }
     const zipPath = path.join(outputDir, zipName);
+    logger.info('[publish] packCanboxZip: zipName=%s outputDir=%s zipPath=%s', zipName, outputDir, zipPath);
 
     // 确保输出目录存在
     if (!fs.existsSync(outputDir)) {
@@ -127,6 +166,10 @@ function packCanboxZip(sourceDir, resourcesDir, outDir) {
         }
 
         zip.writeZip(zipPath);
+        logger.info('[publish] packCanboxZip: writeZip done, path=%s size=%d bytes', zipPath, fs.statSync(zipPath).size);
+    } catch (e) {
+        logger.error('[publish] packCanboxZip: writeZip failed: %s', e.stack || e.message);
+        throw e;
     } finally {
         process.noAsar = prevNoAsar;
     }

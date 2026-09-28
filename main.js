@@ -23,6 +23,24 @@ const USERS_PATH = env.usersPath;
 const CORE_PATH = global.__CANBOX_CORE_PATH__;
 const { createNativeMeta, createWebMeta, writeCanboxMeta, readCanboxMeta } = require(path.join(CORE_PATH, 'lib', 'canbox-meta'));
 
+/**
+ * 获取 canbox-core 注入的 logger（log4js），写入 {usersPath}/logs/canbox.log
+ * 若 logger 未初始化（injection.js 的 logger.init() 在 app.whenReady() 之后异步执行），降级为 console
+ * 注意：不在模块加载时获取，而是每次使用时动态获取
+ */
+function _getLogger() {
+    try {
+        const loggerModule = require(path.join(CORE_PATH, 'lib', 'logger'));
+        return loggerModule.get() || console;
+    } catch (_) {
+        return console;
+    }
+}
+const logger = {
+    info: (...args) => _getLogger().info(...args),
+    error: (...args) => _getLogger().error(...args)
+};
+
 let mainWindow = null;
 
 // ====== Developer 专用 IPC Handlers ======
@@ -66,11 +84,8 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
         const args = ['-r', coreInjection, sourceDir, `--app-id=${appId}`, '--no-sandbox'];
         const env = { ...process.env, NODE_ENV: 'development' };
 
-        console.log('[developer] 启动 APP:');
-        console.log('[developer]   execPath:', process.execPath);
-        console.log('[developer]   args:', JSON.stringify(args));
-        console.log('[developer]   NODE_ENV:', env.NODE_ENV);
-        console.log('[developer]   appId:', appId);
+        logger.info('[launch] developer.apps.launch: execPath=%s args=%s NODE_ENV=%s appId=%s',
+            process.execPath, JSON.stringify(args), env.NODE_ENV, appId);
 
         const child = spawn(process.execPath, args, {
             detached: true,
@@ -81,19 +96,19 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
         let launchError = null;
         let earlyExit = false;
 
-        // 转发子进程 stdout/stderr 到 developer 终端
+        // 转发子进程 stdout/stderr 到 logger（与 developer 终端同步）
         child.stdout.on('data', (data) => {
-            console.log(`[${appId}] ${data.toString().trim()}`);
+            logger.info('[launch] [%s] %s', appId, data.toString().trim());
         });
         child.stderr.on('data', (data) => {
-            console.error(`[${appId}] ${data.toString().trim()}`);
+            logger.error('[launch] [%s] %s', appId, data.toString().trim());
         });
         child.on('error', (err) => {
-            console.error(`[${appId}] 进程启动失败:`, err);
+            logger.error('[launch] [%s] 进程启动失败: %s', appId, err.stack || err.message);
             launchError = err;
         });
         child.on('exit', (code, signal) => {
-            console.log(`[${appId}] 进程退出, code=${code}, signal=${signal}`);
+            logger.info('[launch] [%s] 进程退出, code=%s signal=%s', appId, code, signal);
             // 如果在等待期内退出，标记为早期退出
             earlyExit = true;
         });
@@ -102,7 +117,7 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         if (earlyExit) {
-            return { success: false, error: `APP 进程启动后立即退出（请查看终端日志排查）` };
+            return { success: false, error: `APP 进程启动后立即退出（请查看 {usersPath}/logs/canbox.log 排查）` };
         }
         if (launchError) {
             return { success: false, error: launchError.message };
@@ -112,7 +127,7 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
 
         return { success: true, appId };
     } catch (e) {
-        console.error('[developer] 启动异常:', e);
+        logger.error('[launch] developer.apps.launch: exception: %s', e.stack || e.message);
         return { success: false, error: e.message };
     }
 });
@@ -124,6 +139,7 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
  * @returns {Promise<{success: boolean, path?: string, error?: string}>}
  */
 ipcMain.handle('developer.apps.publish', async (_e, sourceDir) => {
+    logger.info('[publish] developer.apps.publish: start, sourceDir=%s', sourceDir);
     // 弹出目录选择对话框，选构建产物目录（含 app.asar 的目录）
     const result = await dialog.showOpenDialog({
         title: '打包分发：将已有的 app.asar 按标准结构压成 zip。请先完成 npm run dist 构建，再选择构建产物目录（含 app.asar，通常为 dist/xxx-unpacked/resources/）',
@@ -131,16 +147,25 @@ ipcMain.handle('developer.apps.publish', async (_e, sourceDir) => {
         properties: ['openDirectory']
     });
     if (result.canceled || result.filePaths.length === 0) {
+        logger.info('[publish] developer.apps.publish: dialog canceled');
         return { success: false, canceled: true };
     }
 
     const resourcesDir = result.filePaths[0];
+    logger.info('[publish] developer.apps.publish: resourcesDir=%s', resourcesDir);
 
     // 调用共享模块打包（与 CLI canbox-publish.js 共用同一逻辑）
     const { packCanboxZip } = require(path.join(__dirname, 'scripts', 'canbox-publish.js'));
     try {
-        return packCanboxZip(sourceDir, resourcesDir);
+        const r = packCanboxZip(sourceDir, resourcesDir);
+        if (r.success) {
+            logger.info('[publish] developer.apps.publish: success, path=%s', r.path);
+        } else {
+            logger.error('[publish] developer.apps.publish: failed, error=%s', r.error);
+        }
+        return r;
     } catch (e) {
+        logger.error('[publish] developer.apps.publish: exception: %s', e.stack || e.message);
         return { success: false, error: e.message };
     }
 });
@@ -589,7 +614,14 @@ ipcMain.handle('developer.dialog.showOpenDialog', async (_e, options) => {
 });
 
 ipcMain.handle('developer.shell.openUrl', async (_e, url) => {
+    logger.info('[shell] openUrl: %s', url);
     return shell.openExternal(url);
+});
+
+// 打开本地文件/目录（用于"打开所在目录"按钮等场景）
+ipcMain.handle('developer.shell.openPath', async (_e, targetPath) => {
+    logger.info('[shell] openPath: %s', targetPath);
+    return shell.openPath(targetPath);
 });
 
 // ====== 窗口创建 ======
@@ -715,7 +747,7 @@ function createWindow() {
             const zoomFactor = getSettingsStore().get('zoomFactor') || 1.0;
             if (zoomFactor !== 1.0) {
                 mainWindow.webContents.setZoomFactor(zoomFactor);
-                console.log(`[startup] Applied zoom factor: ${zoomFactor}`);
+                logger.info('[startup] Applied zoom factor: %s', zoomFactor);
             }
         } catch (e) {
             // 忽略
@@ -731,6 +763,7 @@ ipcMain.handle('developer.appReady', () => {
 
 app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+    logger.info('[startup] canbox-developer ready, version=%s electron=%s', require('./package.json').version, process.versions.electron);
     createWindow();
 });
 
