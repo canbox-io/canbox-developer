@@ -4,6 +4,34 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.1.5] - 2026-09-28
+
+### feat | 新功能 / Features
+
+优化打包成功提示为模态对话框，支持一键打开 zip 所在目录，并接入 canbox-core 集中日志输出
+关于页新增许可证和作者信息，优化 CI 镜像源选择逻辑
+
+Optimize pack-success prompt to a modal dialog with one-click open-folder support, and integrate centralized logging via canbox-core
+Add license and author info to About page, improve CI mirror source selection logic
+
+### fix | 问题修复 / Bug Fixes
+
+锁定 electron 依赖为精确版本 42.5.1，避免 ^ 范围拉取不兼容的 42.7.0
+
+Pin electron dependency to exact 42.5.1 to prevent ^ range from pulling incompatible 42.7.0
+
+### build | 构建 / Build
+
+添加 cross-env 依赖并修复启动脚本的环境变量设置，支持跨平台 npm run
+
+Add cross-env dependency and fix environment variable setup in start scripts for cross-platform npm run
+
+### chore | 维护 / Maintenance
+
+修改 package.json 中的作者信息
+
+Update author info in package.json
+
 ## [0.1.4] - 2026-07-19
 
 ### feat | 新功能 / Features
