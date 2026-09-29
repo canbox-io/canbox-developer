@@ -155,8 +155,8 @@ ipcMain.handle('developer.apps.publish', async (_e, sourceDir) => {
     logger.info('[publish] developer.apps.publish: resourcesDir=%s', resourcesDir);
 
     // 调用共享模块打包（与 CLI canbox-publish.js 共用同一逻辑）
-    const { packCanboxZip } = require(path.join(__dirname, 'scripts', 'canbox-publish.js'));
     try {
+        const { packCanboxZip } = require(path.join(__dirname, 'scripts', 'canbox-publish.js'));
         const r = packCanboxZip(sourceDir, resourcesDir);
         if (r.success) {
             logger.info('[publish] developer.apps.publish: success, path=%s', r.path);

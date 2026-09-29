@@ -1,7 +1,7 @@
 {
     "name": "canbox-developer",
     "id": "com.github.canbox-io.canbox-developer",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "description": "Canbox 开发者工具 APP — 脚手架创建、源码目录调试启动、打包发布",
     "main": "main.js",
     "logo": "logo.png",
@@ -36,6 +36,7 @@
         "files": [
             "main.js",
             "preload.js",
+            "scripts/**/*",
             "build/**/*",
             "package.json",
             "logo.png"
