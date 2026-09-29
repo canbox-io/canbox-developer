@@ -4,6 +4,16 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.1.6] - 2026-09-29
+
+### fix | 问题修复 / Bug Fixes
+
+修复生产模式下"打包"按钮失效的问题：build.files 遗漏 scripts 目录，导致 canbox-publish.js 未被打进 app.asar
+打包失败时返回可见错误提示，避免静默失败
+
+Fix the "Pack" button failing in production builds: the scripts directory was missing from build.files, so canbox-publish.js was not packaged into app.asar
+Surface a visible error when packaging fails instead of failing silently
+
 ## [0.1.5] - 2026-09-28
 
 ### feat | 新功能 / Features
