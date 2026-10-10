@@ -4,6 +4,14 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.1.7] - 2026-10-10
+
+### fix | 问题修复 / Bug Fixes
+
+修复生产模式下"打包发布"报 Cannot find module 'adm-zip' 的问题：改为在关闭 asar 支持前先行加载 adm-zip，避免无法解析 app.asar 内的依赖
+
+Fix the "Cannot find module 'adm-zip'" error when publishing in production mode: load adm-zip before disabling asar support so dependencies inside app.asar can still be resolved
+
 ## [0.1.6] - 2026-09-29
 
 ### fix | 问题修复 / Bug Fixes
