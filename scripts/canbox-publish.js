@@ -113,13 +113,17 @@ function packCanboxZip(sourceDir, resourcesDir, outDir) {
         fs.mkdirSync(outputDir, { recursive: true });
     }
 
+    // 先加载 adm-zip，必须早于 process.noAsar = true：
+    // 生产模式下本脚本位于 app.asar 内，若关闭 asar 支持再 require，
+    // 将无法解析 asar 内的 node_modules，报 "Cannot find module 'adm-zip'"
+    const AdmZip = require('adm-zip');
+
     // 禁用 Electron asar 补丁，否则 adm-zip 的 addLocalFile 会把 app.asar 当目录处理
     // （statSync 返回 isDirectory=true，readFileSync 读不到真实内容），生成的 zip 里
     // app.asar 会变成空目录 entry，APP 内容丢失
     const prevNoAsar = process.noAsar;
     process.noAsar = true;
     try {
-        const AdmZip = require('adm-zip');
         const zip = new AdmZip();
 
         // 1. app.asar
