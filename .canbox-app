@@ -4,5 +4,6 @@
         "range": "42.5.1"
     },
     "type": "native",
-    "webApp": null
+    "webApp": null,
+    "category": "development"
 }
