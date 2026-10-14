@@ -191,7 +191,11 @@ ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
         // 创建 .canbox-app（canbox 平台配置，JSON 格式）
         // options.electronRange 优先，默认用当前 builtin electron 版本（锁死，不带 ^）
         const electronRange = options.electronRange || process.versions.electron;
-        writeCanboxMeta(targetDir, createNativeMeta(electronRange));
+        const meta = createNativeMeta(electronRange);
+        // 分类归一（非法或缺省归 other）
+        const { normalizeCategory } = require(path.join(CORE_PATH, 'lib', 'category'));
+        meta.category = normalizeCategory(options.category);
+        writeCanboxMeta(targetDir, meta);
 
         // 创建 package.json
         const pkg = {
@@ -460,14 +464,16 @@ ipcMain.handle('developer.electron.listAllowed', async () => {
  * @param {string} electronRange - electron 版本范围（如 '42.5.1'）
  * @param {string} [type='native'] - APP 类型，native | web
  */
-ipcMain.handle('developer.apps.writeCanboxMeta', async (_e, sourceDir, electronRange, type) => {
+ipcMain.handle('developer.apps.writeCanboxMeta', async (_e, sourceDir, electronRange, type, category) => {
     try {
         if (!sourceDir || !electronRange) {
             return { success: false, error: 'sourceDir 和 electronRange 必填' };
         }
+        const { normalizeCategory } = require(path.join(CORE_PATH, 'lib', 'category'));
         const meta = type === 'web'
             ? createWebMeta(electronRange, null)
             : createNativeMeta(electronRange);
+        meta.category = normalizeCategory(category);
         writeCanboxMeta(sourceDir, meta);
         return { success: true };
     } catch (e) {

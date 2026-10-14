@@ -48,6 +48,19 @@ async function addApp(presetSourceDir) {
         }
         // 弹窗：下拉选版本（用 h 函数渲染 el-select）
         const selectedVersion = ref(allowed.versions[0]);
+        const selectedCategory = ref('other');
+        const categoryOptions = [
+            { value: 'other', label: t('scaffold.categoryOther') },
+            { value: 'development', label: t('scaffold.categoryDevelopment') },
+            { value: 'utility', label: t('scaffold.categoryUtility') },
+            { value: 'office', label: t('scaffold.categoryOffice') },
+            { value: 'network', label: t('scaffold.categoryNetwork') },
+            { value: 'audio', label: t('scaffold.categoryAudio') },
+            { value: 'video', label: t('scaffold.categoryVideo') },
+            { value: 'game', label: t('scaffold.categoryGame') },
+            { value: 'graphics', label: t('scaffold.categoryGraphics') },
+            { value: 'education', label: t('scaffold.categoryEducation') }
+        ];
         try {
             await ElMessageBox({
                 title: t('projects.electronRangeTitle'),
@@ -57,18 +70,23 @@ async function addApp(presetSourceDir) {
                     h(ElSelect, {
                         modelValue: selectedVersion.value,
                         'onUpdate:modelValue': (v) => { selectedVersion.value = v; },
+                        style: 'width: 100%; margin-bottom: 12px;'
+                    }, () => allowed.versions.map(v => h(ElOption, { label: v, value: v }))),
+                    h('p', { style: 'margin: 0 0 6px 0; color: #606266; font-size: 13px;' },
+                        t('projects.categoryLabel')),
+                    h(ElSelect, {
+                        modelValue: selectedCategory.value,
+                        'onUpdate:modelValue': (v) => { selectedCategory.value = v; },
                         style: 'width: 100%;'
-                    }, () => allowed.versions.map(v => h(ElOption, { label: v, value: v })))
+                    }, () => categoryOptions.map(o => h(ElOption, { label: o.label, value: o.value })))
                 ],
                 confirmButtonText: t('projects.confirmWrite'),
                 cancelButtonText: t('projects.cancel'),
                 showCancelButton: true,
                 closeOnClickModal: false
             });
-            // 用户确认
             if (!selectedVersion.value) return;
-            // 写入 .canbox-app
-            const writeResult = await window.api.developer.writeCanboxMeta(sourceDir, selectedVersion.value, 'native');
+            const writeResult = await window.api.developer.writeCanboxMeta(sourceDir, selectedVersion.value, 'native', selectedCategory.value);
             if (!writeResult.success) {
                 notification.error(writeResult.error || t('projects.writeMetaFailed'));
                 return;

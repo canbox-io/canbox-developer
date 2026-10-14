@@ -41,8 +41,8 @@ const api = {
         addApp: (sourceDir) => ipcRenderer.invoke('developer.apps.add', sourceDir),
 
         // 为 APP 写入 .canbox-app（添加已有 APP 时缺失则由前端弹窗选版本后调用）
-        writeCanboxMeta: (sourceDir, electronRange, type) =>
-            ipcRenderer.invoke('developer.apps.writeCanboxMeta', sourceDir, electronRange, type),
+        writeCanboxMeta: (sourceDir, electronRange, type, category) =>
+            ipcRenderer.invoke('developer.apps.writeCanboxMeta', sourceDir, electronRange, type, category),
 
         // 查询 canbox 白名单中的 electron 版本列表（供前端下拉选择）
         electronListAllowed: () => ipcRenderer.invoke('developer.electron.listAllowed'),

@@ -4,12 +4,26 @@ import { useI18n } from 'vue-i18n';
 import notification from '@/utils/notification';
 
 const { t } = useI18n();
+const CATEGORY_OPTIONS = [
+    { value: 'other', label: t('scaffold.categoryOther') },
+    { value: 'development', label: t('scaffold.categoryDevelopment') },
+    { value: 'utility', label: t('scaffold.categoryUtility') },
+    { value: 'office', label: t('scaffold.categoryOffice') },
+    { value: 'network', label: t('scaffold.categoryNetwork') },
+    { value: 'audio', label: t('scaffold.categoryAudio') },
+    { value: 'video', label: t('scaffold.categoryVideo') },
+    { value: 'game', label: t('scaffold.categoryGame') },
+    { value: 'graphics', label: t('scaffold.categoryGraphics') },
+    { value: 'education', label: t('scaffold.categoryEducation') }
+];
+
 const form = ref({
     name: '',
     description: '',
     author: '',
     targetDir: '',
-    electronVersion: ''
+    electronVersion: '',
+    category: 'other'
 });
 
 const creating = ref(false);
@@ -46,12 +60,13 @@ async function createProject() {
                 name: form.value.name,
                 description: form.value.description,
                 author: form.value.author,
-                electronRange: form.value.electronVersion
+                electronRange: form.value.electronVersion,
+                category: form.value.category
             }
         );
         if (result.success) {
             notification.success(t('scaffold.createSuccess'));
-            form.value = { name: '', description: '', author: '', targetDir: '', electronVersion: '' };
+            form.value = { name: '', description: '', author: '', targetDir: '', electronVersion: '', category: 'other' };
         } else {
             notification.error(result.error || t('scaffold.createFailed'));
         }
@@ -102,6 +117,16 @@ onMounted(async () => {
                             :key="ver"
                             :label="ver"
                             :value="ver"
+                        />
+                    </el-select>
+                </el-form-item>
+                <el-form-item :label="t('scaffold.category')">
+                    <el-select v-model="form.category" style="width: 100%;">
+                        <el-option
+                            v-for="opt in CATEGORY_OPTIONS"
+                            :key="opt.value"
+                            :label="opt.label"
+                            :value="opt.value"
                         />
                     </el-select>
                 </el-form-item>

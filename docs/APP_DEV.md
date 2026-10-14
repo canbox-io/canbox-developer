@@ -277,7 +277,7 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 | `description` | 否   | string   | APP 描述                                                                                    |
 | `author`      | 否   | string   | 作者                                                                                        |
 | `logo`        | 否   | string   | 图标文件路径（相对 APP 根目录）。不配时自动探测                                             |
-| `keywords`    | 否   | string[] | 标准 npm 字段，兼做分类标签和搜索关键词                                                     |
+| `keywords`    | 否   | string[] | 标准 npm 字段，仅作搜索关键词                                                                 |
 | `platforms`   | 否   | string[] | 支持的平台，可选值 `windows`/`darwin`/`linux`。不配则默认全平台                       |
 
 ### logo 自动探测
@@ -292,14 +292,21 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 
 找到即使用，都找不到显示占位图标。
 
-### keywords 用途
+### APP 分类
 
-`keywords` 是 npm 标准字段，在 Canbox 中兼做两个用途：
+APP 分类通过仓库根目录 `.canbox-app` 文件的 `category` 字段声明，取值为以下 9 个枚举之一：`development`、`utility`、`office`、`network`、`audio`、`video`、`game`、`graphics`、`education`。缺失或非法值归为 `other`（未分类）。
 
-- **分类**：如 `development`、`utility`、`graphics` 等，用于仓库分类筛选
-- **标签/搜索**：如 `json`、`formatter`，用于仓库搜索
+```json
+{
+    "version": 1,
+    "electron": { "range": "42.5.1" },
+    "type": "native",
+    "webApp": null,
+    "category": "development"
+}
+```
 
-无需单独的 `categories` 或 `tags` 字段，统一用 `keywords`。
+`keywords` 字段仅用于搜索，不再兼做分类。
 
 ### platforms 用途
 
