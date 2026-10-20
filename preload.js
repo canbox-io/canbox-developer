@@ -40,6 +40,9 @@ const api = {
         // 添加开发项目（选择 package.json，可选传入 sourceDir 跳过选择对话框）
         addApp: (sourceDir) => ipcRenderer.invoke('developer.apps.add', sourceDir),
 
+        // 从模板生成 APP 项目骨架（新建项目）
+        scaffoldCreate: (targetDir, options) => ipcRenderer.invoke('developer.scaffold.create', targetDir, options),
+
         // 为 APP 写入 .canbox-app（添加已有 APP 时缺失则由前端弹窗选版本后调用）
         writeCanboxMeta: (sourceDir, electronRange, type, category) =>
             ipcRenderer.invoke('developer.apps.writeCanboxMeta', sourceDir, electronRange, type, category),

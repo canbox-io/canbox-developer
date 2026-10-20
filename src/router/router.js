@@ -8,6 +8,11 @@ const router = createRouter({
             component: () => import('../views/ProjectsView.vue')
         },
         {
+            path: '/scaffold',
+            name: 'scaffold',
+            component: () => import('../views/ScaffoldView.vue')
+        },
+        {
             path: '/settings',
             name: 'settings',
             component: () => import('../views/SettingsView.vue')

@@ -172,154 +172,61 @@ ipcMain.handle('developer.apps.publish', async (_e, sourceDir) => {
 
 /**
  * 从模板创建新 APP 项目骨架
- * @param {string} targetDir - 目标目录
- * @param {object} options - { name, description, author, template }
- * @returns {Promise<{success: boolean, error?: string}>}
+ * 所选 targetDir 即工程目录，工程文件直接写入该目录（目录需为空）
+ * @param {string} targetDir - 工程目录
+ * @param {object} options - { name, description, author, template, electronRange, category }
+ * @returns {Promise<{success: boolean, sourceDir?: string, appId?: string, code?: string, error?: string}>}
  */
 ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
-    const { name, description, author } = options;
+    const { name, description, author, template } = options;
 
     if (!name) {
-        return { success: false, error: 'APP name is required' };
+        return { success: false, code: 'NAME_REQUIRED', error: 'APP name is required' };
+    }
+    const { buildScaffold, isValidAppName } = require(path.join(__dirname, 'scripts', 'scaffold'));
+    if (!isValidAppName(name)) {
+        return { success: false, code: 'INVALID_NAME', error: 'APP name contains invalid characters' };
+    }
+    if (!targetDir) {
+        return { success: false, code: 'DIR_REQUIRED', error: 'Project directory is required' };
     }
 
     try {
-        if (!fs.existsSync(targetDir)) {
-            fs.mkdirSync(targetDir, { recursive: true });
+        // 目标目录即工程目录：已存在的非空目录直接拒绝，避免覆盖用户已有文件
+        if (fs.existsSync(targetDir) && fs.readdirSync(targetDir).length > 0) {
+            return { success: false, code: 'DIR_NOT_EMPTY', error: 'Target directory is not empty' };
         }
 
-        // 创建 .canbox-app（canbox 平台配置，JSON 格式）
         // options.electronRange 优先，默认用当前 builtin electron 版本（锁死，不带 ^）
         const electronRange = options.electronRange || process.versions.electron;
+        const { files } = buildScaffold({
+            name,
+            description,
+            author,
+            template,
+            injectionPath: getCoreInjectionPath(),
+            electronRange
+        });
+
+        Object.keys(files).forEach((relPath) => {
+            const fullPath = path.join(targetDir, relPath);
+            fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+            fs.writeFileSync(fullPath, files[relPath]);
+        });
+
+        // 创建 .canbox-app（canbox 平台配置，JSON 格式）
         const meta = createNativeMeta(electronRange);
         // 分类归一（非法或缺省归 other）
         const { normalizeCategory } = require(path.join(CORE_PATH, 'lib', 'category'));
         meta.category = normalizeCategory(options.category);
         writeCanboxMeta(targetDir, meta);
 
-        // 创建 package.json
-        const pkg = {
-            name,
-            version: '0.0.1',
-            description: description || '',
-            main: 'main.js',
-            author: author || '',
-            license: 'Apache-2.0',
-            scripts: {
-                dev: 'vite --port 5173',
-                build: 'vite build',
-                start: `NODE_ENV=development electron -r /path/to/canbox-core/injection.js . --app-id=${name} --no-sandbox`
-            },
-            dependencies: {
-                vue: '^3.4.21',
-                'vue-router': '^4.4.5'
-            },
-            devDependencies: {
-                '@vitejs/plugin-vue': '^5.1.2',
-                electron: '42.5.1',
-                vite: '^5.4.6'
-            }
-        };
-        fs.writeFileSync(
-            path.join(targetDir, 'package.json'),
-            JSON.stringify(pkg, null, 4)
-        );
+        logger.info('[scaffold] developer.scaffold.create: created dir=%s template=%s appId=%s',
+            targetDir, template || 'vue3-js', name);
 
-        // 创建 main.js
-        const mainJs = `const { app, BrowserWindow, Menu } = require('electron');
-const path = require('path');
-
-let mainWindow = null;
-
-function createWindow() {
-    mainWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
-        webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: false
-        }
-    });
-
-    const isDev = process.env.NODE_ENV === 'development';
-    if (isDev) {
-        mainWindow.loadURL('http://localhost:5173');
-        mainWindow.webContents.openDevTools({ mode: 'detach' });
-    } else {
-        mainWindow.loadFile(path.join(__dirname, 'build', 'index.html'));
-    }
-}
-
-app.whenReady().then(() => {
-    Menu.setApplicationMenu(null);
-    createWindow();
-});
-
-app.on('window-all-closed', () => app.quit());
-app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
-`;
-        fs.writeFileSync(path.join(targetDir, 'main.js'), mainJs);
-
-        // 创建 preload.js（黑盒式 API 模板）
-        const preloadJs = `const { contextBridge, ipcRenderer } = require('electron');
-
-contextBridge.exposeInMainWorld('api', {
-    store: {
-        get: (name, key) => ipcRenderer.invoke('canbox.store.get', name, key),
-        set: (name, key, value) => ipcRenderer.invoke('canbox.store.set', name, key, value),
-        delete: (name, key) => ipcRenderer.invoke('canbox.store.delete', name, key),
-        clear: (name) => ipcRenderer.invoke('canbox.store.clear', name)
-    },
-    db: {
-        put: (doc) => ipcRenderer.invoke('canbox.db.put', doc),
-        get: (docId) => ipcRenderer.invoke('canbox.db.get', docId),
-        allDocs: (options) => ipcRenderer.invoke('canbox.db.allDocs', options),
-        bulkDocs: (docs) => ipcRenderer.invoke('canbox.db.bulkDocs', docs),
-        remove: (doc) => ipcRenderer.invoke('canbox.db.remove', doc),
-        find: (query) => ipcRenderer.invoke('canbox.db.find', query),
-        createIndex: (index) => ipcRenderer.invoke('canbox.db.createIndex', index)
-    },
-    misc: {
-        hello: () => ipcRenderer.invoke('canbox.misc.hello'),
-        getUserData: () => ipcRenderer.invoke('canbox.misc.getUserData')
-    }
-});
-`;
-        fs.writeFileSync(path.join(targetDir, 'preload.js'), preloadJs);
-
-        // 创建 index.html
-        const indexHtml = `<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${name}</title>
-</head>
-<body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-</body>
-</html>
-`;
-        fs.writeFileSync(path.join(targetDir, 'index.html'), indexHtml);
-
-        // 创建 src 目录及最小 Vue 骨架
-        fs.mkdirSync(path.join(targetDir, 'src'), { recursive: true });
-        fs.writeFileSync(
-            path.join(targetDir, 'src', 'main.js'),
-            `import { createApp } from 'vue'\nimport App from './App.vue'\n\ncreateApp(App).mount('#app')\n`
-        );
-        fs.writeFileSync(
-            path.join(targetDir, 'src', 'App.vue'),
-            `<template>\n    <div>\n        <h1>${name}</h1>\n        <p>${description || ''}</p>\n    </div>\n</template>\n\n<script setup>\n</script>\n`
-        );
-
-        return { success: true };
+        return { success: true, sourceDir: targetDir, appId: name };
     } catch (e) {
+        logger.error('[scaffold] developer.scaffold.create: failed: %s', e.stack || e.message);
         return { success: false, error: e.message };
     }
 });
@@ -418,7 +325,7 @@ ipcMain.handle('developer.apps.add', async (_e, presetSourceDir) => {
 
         // 避免重复添加
         if (list.some(item => item.appId === info.appId)) {
-            return { success: false, error: '该 APP 已在开发列表中' };
+            return { success: false, code: 'APP_ALREADY_ADDED', error: '该 APP 已在开发列表中' };
         }
 
         // 只存结构性数据

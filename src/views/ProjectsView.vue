@@ -199,8 +199,21 @@ onMounted(() => {
         <header class="view-header">
             <h1>{{ t('projects.title') }}</h1>
             <div class="header-actions">
-                <el-button @click="openDevDocs">{{ t('projects.devDocs') }}</el-button>
-                <el-button @click="openApiDocs">{{ t('projects.apiDocs') }}</el-button>
+                <el-link
+                    type="primary"
+                    underline="never"
+                    class="doc-link"
+                    :title="t('projects.devDocsTitle')"
+                    @click="openDevDocs"
+                >{{ t('projects.devDocs') }}</el-link>
+                <el-link
+                    type="primary"
+                    underline="never"
+                    class="doc-link"
+                    :title="t('projects.apiDocsTitle')"
+                    @click="openApiDocs"
+                >{{ t('projects.apiDocs') }}</el-link>
+                <el-button @click="router.push('/scaffold')">{{ t('projects.newProject') }}</el-button>
                 <el-button type="primary" @click="addApp()">{{ t('projects.addApp') }}</el-button>
                 <el-button circle @click="router.push('/settings')" :title="t('projects.settingsWithShortcut')">
                     <span style="font-size: 18px;">⚙</span>
@@ -286,6 +299,11 @@ onMounted(() => {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+/* 文档入口为文字链接，与操作按钮区分开 */
+.doc-link {
+    font-size: 14px;
+    margin-right: 4px;
 }
 .view-body {
     flex: 1;

@@ -20,6 +20,7 @@ const languages = [
 const shortcuts = computed(() => [
     { keys: 'Ctrl + ,', desc: t('settings.scOpenSettings') },
     { keys: 'Esc', desc: t('settings.scCloseSettings') },
+    { keys: 'Esc', desc: t('settings.scExitNewApp') },
     { keys: `Ctrl + ${t('settings.keyWheel')}`, desc: t('settings.scZoomWheel') },
     { keys: 'Ctrl + =', desc: t('settings.scZoomIn') },
     { keys: 'Ctrl + -', desc: t('settings.scZoomOut') },
