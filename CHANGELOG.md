@@ -4,6 +4,38 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.1.8] - 2026-10-20
+
+### feat | 新功能 / Features
+
+新增 APP 项目骨架生成功能，支持 Vue 3 + Vite（JavaScript）、Vue 3 + Vite（TypeScript）、原生 JavaScript（无构建）三种技术栈模板，内置界面缩放、窗口状态记忆、界面状态保持、禁止选中复制、快捷键设置等基础能力
+新增"新建APP"界面，支持选择工程目录并填写名称/描述/作者/分类/Electron 版本，创建完成后自动退出并加入开发项目列表
+新增 Ctrl+, 打开设置界面快捷键，设置中集中展示全部快捷键条目
+新增 APP 分类能力，添加已有 APP 时可选择分类并写入 .canbox-app 配置的 category 字段
+"开发文档""API 文档"入口由按钮改为文字链接，与操作按钮区分
+
+Add APP project scaffolding with three tech-stack templates: Vue 3 + Vite (JavaScript), Vue 3 + Vite (TypeScript), and vanilla JavaScript (no build), with the five built-in capabilities (zoom, window state memory, view state preservation, selection/copy disabled, shortcut settings)
+Add a "New App" page supporting project directory selection plus name/description/author/category/Electron version input; on success it exits the page and adds the project to the dev list
+Add a Ctrl+, shortcut to open settings, with all shortcuts listed in the settings view
+Add APP category support: choose a category when adding an existing APP and write it into the .canbox-app config
+Change the "Dev Docs" / "API Docs" entries from buttons to text links to distinguish them from action buttons
+
+### fix | 问题修复 / Bug Fixes
+
+修复骨架生成的 start 脚本硬编码 canbox-core 注入路径的问题：改为通过 getCoreInjectionPath() 写入真实绝对路径
+修复骨架工程构建产物路径未与主进程加载路径对齐的问题：统一 vite 构建输出到 build 目录
+修复 el-link 使用布尔型 underline 触发的 Element Plus 弃用告警：改用 underline="never"
+
+Fix the scaffolded project's start script hardcoding the canbox-core injection path: use getCoreInjectionPath() to write the real absolute path
+Fix the mismatch between the scaffolded build output path and the main-process load path: unify Vite output to the build directory
+Fix the Element Plus deprecation warning caused by the boolean underline prop on el-link: use underline="never" instead
+
+### build | 构建 / Build
+
+更新 .canbox-app 配置文件，新增 category 字段
+
+Update the .canbox-app config file with a new category field
+
 ## [0.1.7] - 2026-10-10
 
 ### fix | 问题修复 / Bug Fixes
