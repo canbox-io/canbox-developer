@@ -71,6 +71,12 @@ document.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 document.addEventListener('keydown', (e) => {
+    // Ctrl+, 打开设置（用物理按键判断，避免修饰键/输入法状态干扰）
+    if (e.ctrlKey && e.code === 'Comma') {
+        e.preventDefault();
+        router.push('/settings');
+        return;
+    }
     if (!e.ctrlKey) return;
     if (e.key === '+' || e.key === '=') {
         e.preventDefault();

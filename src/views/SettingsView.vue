@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useSettingsStore } from '../stores/settings';
@@ -15,6 +15,16 @@ const languages = [
     { value: 'zh-CN', label: '简体中文' },
     { value: 'en-US', label: 'English' }
 ];
+
+// 快捷键清单（与 src/main.js 中实际实现保持一致）
+const shortcuts = computed(() => [
+    { keys: 'Ctrl + ,', desc: t('settings.scOpenSettings') },
+    { keys: 'Esc', desc: t('settings.scCloseSettings') },
+    { keys: `Ctrl + ${t('settings.keyWheel')}`, desc: t('settings.scZoomWheel') },
+    { keys: 'Ctrl + =', desc: t('settings.scZoomIn') },
+    { keys: 'Ctrl + -', desc: t('settings.scZoomOut') },
+    { keys: 'Ctrl + 0', desc: t('settings.scZoomReset') }
+]);
 
 function back() {
     router.push('/');
@@ -117,6 +127,19 @@ async function openHomepage() {
                         <el-button size="small" @click="handleZoomChange(Math.min(2.0, zoomFactor + 0.1))">+</el-button>
                         <el-button size="small" plain @click="handleZoomReset">{{ t('settings.zoomReset') }}</el-button>
                     </div>
+                </div>
+            </el-card>
+
+            <!-- 快捷键 -->
+            <el-card class="settings-section" shadow="never">
+                <template #header>
+                    <span class="section-title">{{ t('settings.shortcuts') }}</span>
+                </template>
+                <div v-for="sc in shortcuts" :key="sc.keys + sc.desc" class="shortcut-item">
+                    <span class="label-text">{{ sc.desc }}</span>
+                    <span class="shortcut-keys">
+                        <kbd v-for="k in sc.keys.split(' + ')" :key="k" class="kbd">{{ k }}</kbd>
+                    </span>
                 </div>
             </el-card>
 
@@ -235,6 +258,35 @@ async function openHomepage() {
 }
 .about-item:last-child {
     border-bottom: none;
+}
+.shortcut-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.shortcut-item:last-child {
+    border-bottom: none;
+}
+.shortcut-keys {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.kbd {
+    display: inline-block;
+    min-width: 20px;
+    padding: 2px 6px;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: center;
+    color: var(--el-text-color-primary);
+    background-color: var(--el-fill-color-light);
+    border: 1px solid var(--el-border-color);
+    border-bottom-width: 2px;
+    border-radius: 4px;
 }
 .about-value {
     font-size: 15px;

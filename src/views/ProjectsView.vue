@@ -177,6 +177,15 @@ async function openDataDir(app) {
     await window.api.developer.openDataDir(app.appId);
 }
 
+// 拉起系统默认浏览器打开官方文档
+function openDevDocs() {
+    window.api.developer.openUrl('https://canbox-io.github.io/canbox-pages/app-dev.html');
+}
+
+function openApiDocs() {
+    window.api.developer.openUrl('https://canbox-io.github.io/canbox-pages/docs.html');
+}
+
 onMounted(() => {
     window.api.misc.hello().then(() => {
         console.log('[canbox-developer] canbox-core 已加载');
@@ -190,8 +199,10 @@ onMounted(() => {
         <header class="view-header">
             <h1>{{ t('projects.title') }}</h1>
             <div class="header-actions">
+                <el-button @click="openDevDocs">{{ t('projects.devDocs') }}</el-button>
+                <el-button @click="openApiDocs">{{ t('projects.apiDocs') }}</el-button>
                 <el-button type="primary" @click="addApp()">{{ t('projects.addApp') }}</el-button>
-                <el-button circle @click="router.push('/settings')" :title="t('projects.settings')">
+                <el-button circle @click="router.push('/settings')" :title="t('projects.settingsWithShortcut')">
                     <span style="font-size: 18px;">⚙</span>
                 </el-button>
             </div>
