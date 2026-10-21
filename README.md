@@ -80,6 +80,8 @@ canbox-developer/
 ├── index.html            # HTML entry
 ├── vite.config.mjs       # Vite build config
 ├── .canbox-app           # Canbox app marker
+├── README.md             # English README
+├── README_zh-CN.md       # Chinese README
 ├── docs/APP_DEV.md       # app development guide
 └── src/
     ├── main.js           # Vue 3 entry

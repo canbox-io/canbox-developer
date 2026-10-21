@@ -80,6 +80,8 @@ canbox-developer/
 ├── index.html            # HTML 入口
 ├── vite.config.mjs       # Vite 构建配置
 ├── .canbox-app           # Canbox APP 标识
+├── README.md             # 英文 README
+├── README_zh-CN.md       # 中文 README
 ├── docs/APP_DEV.md       # APP 开发指南
 └── src/
     ├── main.js           # Vue 3 入口
