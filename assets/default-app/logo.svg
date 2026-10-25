@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+    <linearGradient id="box" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#E0E7FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角背景 -->
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#bg)"/>
+
+  <g transform="translate(256,256)">
+    <!-- 盒盖：左右打开 -->
+    <path d="M-96 -24 L-162 -52 L-66 -92 L0 -58 Z" fill="#DBEAFE" opacity="0.92"/>
+    <path d="M96 -24 L162 -52 L66 -92 L0 -58 Z" fill="#DBEAFE" opacity="0.78"/>
+
+    <!-- 盒体 -->
+    <rect x="-96" y="-24" width="192" height="132" rx="18" fill="url(#box)"/>
+
+    <!-- 盒体上的锁扣 -->
+    <rect x="-26" y="34" width="52" height="12" rx="6" fill="#6366F1" opacity="0.35"/>
+
+    <!-- 升起的加号：新建 APP -->
+    <g stroke="#FDE68A" stroke-width="16" stroke-linecap="round">
+      <line x1="0" y1="-166" x2="0" y2="-112"/>
+      <line x1="-27" y1="-139" x2="27" y2="-139"/>
+    </g>
+
+    <!-- 装饰点 -->
+    <g fill="#FFFFFF" opacity="0.3">
+      <circle cx="-148" cy="126" r="8"/>
+      <circle cx="-112" cy="156" r="5"/>
+      <circle cx="148" cy="126" r="8"/>
+      <circle cx="112" cy="156" r="5"/>
+    </g>
+  </g>
+</svg>

@@ -150,7 +150,7 @@ async function openHomepage() {
                     <span class="section-title">{{ t('settings.about') }}</span>
                 </template>
                 <div class="about-item">
-                    <span class="label-text">canbox-developer</span>
+                    <span class="label-text">DevBox</span>
                     <span class="about-value">{{ appVersion }}</span>
                 </div>
                 <div class="about-item">

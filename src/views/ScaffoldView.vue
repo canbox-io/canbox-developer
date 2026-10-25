@@ -27,6 +27,13 @@ const TEMPLATE_OPTIONS = [
     { value: 'vanilla-js', label: t('scaffold.templateVanilla') }
 ];
 
+// 设置打开方式：切换界面 / 弹层 / 新窗口
+const SETTINGS_MODE_OPTIONS = [
+    { value: 'view', label: t('scaffold.settingsModeView') },
+    { value: 'modal', label: t('scaffold.settingsModeModal') },
+    { value: 'window', label: t('scaffold.settingsModeWindow') }
+];
+
 // APP 名称需可作为 package.json 的 name，仅允许字母数字与 . _ -
 const NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
@@ -35,6 +42,7 @@ const form = ref({
     description: '',
     author: '',
     template: 'vue3-js',
+    settingsMode: 'view',
     targetDir: '',
     electronVersion: '',
     category: 'other'
@@ -90,6 +98,7 @@ async function createProject() {
                 description: form.value.description,
                 author: form.value.author,
                 template: form.value.template,
+                settingsMode: form.value.settingsMode,
                 electronRange: form.value.electronVersion,
                 category: form.value.category
             }
@@ -164,6 +173,17 @@ onUnmounted(() => {
                             :value="opt.value"
                         />
                     </el-select>
+                </el-form-item>
+                <el-form-item :label="t('scaffold.settingsMode')">
+                    <el-select v-model="form.settingsMode" style="width: 100%;">
+                        <el-option
+                            v-for="opt in SETTINGS_MODE_OPTIONS"
+                            :key="opt.value"
+                            :label="opt.label"
+                            :value="opt.value"
+                        />
+                    </el-select>
+                    <div class="form-hint">{{ t('scaffold.settingsModeHint') }}</div>
                 </el-form-item>
                 <el-form-item :label="t('scaffold.targetDir')" required>
                     <el-input v-model="form.targetDir" :placeholder="t('scaffold.targetDirPlaceholder')" readonly>

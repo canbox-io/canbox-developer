@@ -171,14 +171,35 @@ ipcMain.handle('developer.apps.publish', async (_e, sourceDir) => {
 });
 
 /**
+ * 骨架默认图标目录（随 developer 一起分发）
+ */
+const DEFAULT_APP_ICON_DIR = path.join(__dirname, 'assets', 'default-app');
+
+/**
+ * 将骨架默认图标复制到新创建的 APP 工程目录
+ * @param {string} targetDir - APP 工程目录
+ */
+function copyDefaultAppIcons(targetDir) {
+    if (!fs.existsSync(DEFAULT_APP_ICON_DIR)) return;
+    const iconFiles = ['logo.svg', 'logo.png', 'icons/48.png', 'icons/128.png', 'icons/256.png', 'icons/512.png'];
+    iconFiles.forEach((relPath) => {
+        const source = path.join(DEFAULT_APP_ICON_DIR, relPath);
+        if (!fs.existsSync(source)) return;
+        const dest = path.join(targetDir, relPath);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.copyFileSync(source, dest);
+    });
+}
+
+/**
  * 从模板创建新 APP 项目骨架
  * 所选 targetDir 即工程目录，工程文件直接写入该目录（目录需为空）
  * @param {string} targetDir - 工程目录
- * @param {object} options - { name, description, author, template, electronRange, category }
+ * @param {object} options - { name, description, author, template, settingsMode, electronRange, category }
  * @returns {Promise<{success: boolean, sourceDir?: string, appId?: string, code?: string, error?: string}>}
  */
 ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
-    const { name, description, author, template } = options;
+    const { name, description, author, template, settingsMode } = options;
 
     if (!name) {
         return { success: false, code: 'NAME_REQUIRED', error: 'APP name is required' };
@@ -204,6 +225,7 @@ ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
             description,
             author,
             template,
+            settingsMode,
             injectionPath: getCoreInjectionPath(),
             electronRange
         });
@@ -214,6 +236,9 @@ ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
             fs.writeFileSync(fullPath, files[relPath]);
         });
 
+        // 预置默认 APP 图标（开发者可随时替换）
+        copyDefaultAppIcons(targetDir);
+
         // 创建 .canbox-app（canbox 平台配置，JSON 格式）
         const meta = createNativeMeta(electronRange);
         // 分类归一（非法或缺省归 other）
@@ -221,8 +246,8 @@ ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
         meta.category = normalizeCategory(options.category);
         writeCanboxMeta(targetDir, meta);
 
-        logger.info('[scaffold] developer.scaffold.create: created dir=%s template=%s appId=%s',
-            targetDir, template || 'vue3-js', name);
+        logger.info('[scaffold] developer.scaffold.create: created dir=%s template=%s settingsMode=%s appId=%s',
+            targetDir, template || 'vue3-js', settingsMode || 'view', name);
 
         return { success: true, sourceDir: targetDir, appId: name };
     } catch (e) {

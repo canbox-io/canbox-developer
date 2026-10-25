@@ -1,26 +1,33 @@
 /**
  * canbox-developer — APP 项目骨架模板生成
  *
- * 纯函数模块：根据技术栈选项产出「相对路径 → 文件内容」映射，
+ * 纯函数模块：根据技术栈与选项产出「相对路径 → 文件内容」映射，
  * 由 main.js 的 developer.scaffold.create 落盘。
  *
  * 支持的技术栈：
- *   vue3-js     Vue 3 + Vite + JavaScript（默认，含 vue-router）
+ *   vue3-js     Vue 3 + Vite + JavaScript（默认）
  *   vue3-ts     Vue 3 + Vite + TypeScript
  *   vanilla-js  原生 JavaScript，无构建步骤
  *
- * 所有模板内置 canbox APP 五项基础能力：
+ * 所有模板内置 canbox APP 基础能力：
  *   1. 界面缩放（Ctrl+滚轮 / Ctrl+= / Ctrl+- / Ctrl+0，比例持久化）
  *   2. 窗口大小与位置记忆恢复
  *   3. 界面切换状态保持（keep-alive / DOM 不销毁）
  *   4. 全局禁止选中与复制（输入控件除外）
  *   5. 设置界面中的快捷键条目
+ *   6. 中英双语（设置中切换，canbox store 持久化）
+ *
+ * 设置在创建时可选择三种打开方式：
+ *   view    切换界面（同一窗口内的独立界面）
+ *   modal   弹层（同一窗口内的遮罩弹层）
+ *   window  新窗口（独立设置窗口，不阻塞主窗口）
  */
 
 'use strict';
 
 const VUE_ROUTER_VERSION = '^4.4.5';
 const VUE_VERSION = '^3.4.21';
+const VUE_I18N_VERSION = '^11.2.8';
 const VITE_VERSION = '^5.4.6';
 const PLUGIN_VUE_VERSION = '^5.1.2';
 const TS_VERSION = '^5.6.2';
@@ -31,14 +38,75 @@ const TOKEN_INJECTION = '__INJECTION__';
 const TOKEN_ELECTRON = '__ELECTRON__';
 const TOKEN_RENDERER = '__RENDERER__';
 
-const SHORTCUT_ROWS = [
-    ['<kbd>Ctrl</kbd> + 滚轮', '缩放界面（放大 / 缩小）'],
-    ['<kbd>Ctrl</kbd> + <kbd>=</kbd>', '放大界面'],
-    ['<kbd>Ctrl</kbd> + <kbd>-</kbd>', '缩小界面'],
-    ['<kbd>Ctrl</kbd> + <kbd>0</kbd>', '重置缩放为 100%'],
-    ['<kbd>Ctrl</kbd> + <kbd>,</kbd>', '打开设置'],
-    ['<kbd>Esc</kbd>', '关闭设置']
-];
+const SETTINGS_MODES = ['view', 'modal', 'window'];
+
+const LOCALE_KEY = 'app.locale';
+
+// 骨架内置的中英文案（替换 TOKEN_NAME 后写入各模板）
+const MESSAGES = {
+    'zh-CN': {
+        app: { title: TOKEN_NAME },
+        nav: { home: '首页', settings: '设置' },
+        home: {
+            title: '首页',
+            hint: '切换界面后回到本页，输入内容与任务进度会原样保留。',
+            note: '备忘',
+            notePlaceholder: '输入内容，切到「设置」再回来看看',
+            progress: '长任务进度：{percent}%',
+            start: '开始任务',
+            reset: '重置'
+        },
+        settings: {
+            title: '设置',
+            hint: '窗口大小与位置、缩放比例会被记住，重启后自动恢复。',
+            language: '语言',
+            shortcuts: '快捷键',
+            shortcut: '快捷键',
+            action: '功能',
+            close: '关闭'
+        },
+        shortcut: {
+            wheel: '滚轮',
+            zoomWheel: '缩放界面（放大 / 缩小）',
+            zoomIn: '放大界面',
+            zoomOut: '缩小界面',
+            zoomReset: '重置缩放为 100%',
+            openSettings: '打开设置',
+            closeSettings: '关闭设置'
+        }
+    },
+    'en-US': {
+        app: { title: TOKEN_NAME },
+        nav: { home: 'Home', settings: 'Settings' },
+        home: {
+            title: 'Home',
+            hint: 'Switch to Settings and come back — your input and task progress are preserved.',
+            note: 'Note',
+            notePlaceholder: 'Type something, open Settings and come back',
+            progress: 'Task progress: {percent}%',
+            start: 'Start task',
+            reset: 'Reset'
+        },
+        settings: {
+            title: 'Settings',
+            hint: 'Window size, position and zoom are remembered and restored on restart.',
+            language: 'Language',
+            shortcuts: 'Shortcuts',
+            shortcut: 'Shortcut',
+            action: 'Action',
+            close: 'Close'
+        },
+        shortcut: {
+            wheel: 'Wheel',
+            zoomWheel: 'Zoom the interface in / out',
+            zoomIn: 'Zoom in',
+            zoomOut: 'Zoom out',
+            zoomReset: 'Reset zoom to 100%',
+            openSettings: 'Open settings',
+            closeSettings: 'Close settings'
+        }
+    }
+};
 
 /**
  * 校验 APP 名称可用作 package.json 的 name 与目录内代码标识
@@ -49,8 +117,8 @@ function isValidAppName(name) {
     return typeof name === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name);
 }
 
-/** 主进程入口模板（各技术栈共用，按 __RENDERER__ 区分渲染层加载方式） */
-function mainJsTemplate() {
+/** 主进程入口模板（各技术栈共用；window 模式追加独立设置窗口） */
+function mainJsTemplate(withSettingsWindow) {
     return `/**
  * ${TOKEN_NAME} — 主进程入口
  *
@@ -106,6 +174,7 @@ const BUILT_INDEX = path.join(__dirname, 'build', 'index.html');
 const STATIC_INDEX = path.join(__dirname, 'index.html');
 
 let mainWindow = null;
+${withSettingsWindow ? `let settingsWindow = null;` : ''}
 
 function clampZoom(factor) {
     return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(factor * 10) / 10));
@@ -130,32 +199,54 @@ function resolveWindowBounds() {
     return { width: 1000, height: 700, center: true };
 }
 
-function loadRenderer(win) {
+/**
+ * 加载渲染层
+ * @param {BrowserWindow} win
+ * @param {boolean} [isSettingsWindow] 是否为新窗口模式下的设置窗口
+ */
+function loadRenderer(win, isSettingsWindow) {
+    const options = isSettingsWindow ? { query: { settingsWindow: '1' } } : undefined;
     if (RENDERER === 'static') {
-        win.loadFile(STATIC_INDEX);
+        win.loadFile(STATIC_INDEX, options);
         return;
     }
     if (fs.existsSync(BUILT_INDEX)) {
-        win.loadFile(BUILT_INDEX);
+        win.loadFile(BUILT_INDEX, options);
         return;
     }
     if (!app.isPackaged) {
         // 尚未构建（build/index.html 不存在）时连接 Vite 开发服务器，需先执行 npm run dev
-        win.loadURL('http://localhost:5173');
+        win.loadURL(isSettingsWindow ? 'http://localhost:5173/?settingsWindow=1' : 'http://localhost:5173');
         return;
     }
-    win.loadFile(BUILT_INDEX);
+    win.loadFile(BUILT_INDEX, options);
 }
 
-/** 基础能力①：整窗等比缩放，并持久化缩放比例 */
+/** 基础能力①：缩放比例同时应用并持久化，所有窗口保持一致的界面缩放 */
 function applyZoom(factor) {
     const next = clampZoom(factor);
-    if (mainWindow) {
-        mainWindow.webContents.setZoomFactor(next);
-        mainWindow.webContents.send('app:zoomChanged', next);
-    }
     store.set('zoomFactor', next);
+    BrowserWindow.getAllWindows().forEach((win) => {
+        if (win.isDestroyed()) return;
+        win.webContents.setZoomFactor(next);
+        win.webContents.send('app:zoomChanged', next);
+    });
     return next;
+}
+
+/** 基础能力①：Ctrl+= 放大 / Ctrl+- 缩小 / Ctrl+0 重置（用物理按键 e.code 判断） */
+function registerZoomShortcuts(win) {
+    win.webContents.on('before-input-event', (event, input) => {
+        if (!input.control || input.type !== 'keyDown') return;
+        const current = win.webContents.getZoomFactor();
+        let factor = null;
+        if (input.code === 'Equal') factor = current + ZOOM_STEP;
+        else if (input.code === 'Minus') factor = current - ZOOM_STEP;
+        else if (input.code === 'Digit0' || input.code === 'Numpad0') factor = 1;
+        if (factor === null) return;
+        event.preventDefault();
+        applyZoom(factor);
+    });
 }
 
 function createWindow() {
@@ -181,18 +272,7 @@ function createWindow() {
         mainWindow.webContents.setZoomFactor(clampZoom(savedZoom));
     }
 
-    // 基础能力①：Ctrl+= 放大 / Ctrl+- 缩小 / Ctrl+0 重置（用物理按键 e.code 判断）
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-        if (!input.control || input.type !== 'keyDown') return;
-        const current = mainWindow.webContents.getZoomFactor();
-        let factor = null;
-        if (input.code === 'Equal') factor = current + ZOOM_STEP;
-        else if (input.code === 'Minus') factor = current - ZOOM_STEP;
-        else if (input.code === 'Digit0' || input.code === 'Numpad0') factor = 1;
-        if (factor === null) return;
-        event.preventDefault();
-        applyZoom(factor);
-    });
+    registerZoomShortcuts(mainWindow);
 
     // 基础能力②：关闭前保存窗口状态
     mainWindow.on('close', () => {
@@ -202,14 +282,71 @@ function createWindow() {
     });
     mainWindow.on('closed', () => {
         mainWindow = null;
+        ${withSettingsWindow ? `if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();` : ''}
     });
 
     loadRenderer(mainWindow);
 }
+${
+    withSettingsWindow
+        ? `
+/** 独立设置窗口：单例，不阻塞主窗口 */
+function createSettingsWindow() {
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+        settingsWindow.show();
+        settingsWindow.focus();
+        return;
+    }
+    settingsWindow = new BrowserWindow({
+        width: 760,
+        height: 680,
+        center: true,
+        show: true,
+        parent: mainWindow || undefined,
+        backgroundColor: '#f5f7fa',
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: false
+        }
+    });
+
+    const savedZoom = store.get('zoomFactor');
+    if (typeof savedZoom === 'number') {
+        settingsWindow.webContents.setZoomFactor(clampZoom(savedZoom));
+    }
+    registerZoomShortcuts(settingsWindow);
+
+    settingsWindow.on('closed', () => {
+        settingsWindow = null;
+    });
+
+    loadRenderer(settingsWindow, true);
+}
+
+ipcMain.handle('app.settings.open', () => {
+    createSettingsWindow();
+});
+
+ipcMain.handle('app.settings.close', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) win.close();
+});
+
+// 设置窗口修改语言等设置后广播给所有窗口，主窗口据此同步界面
+ipcMain.on('app.settings.changed', (_event, payload) => {
+    BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('app:settingsChanged', payload || {});
+    });
+});
+`
+        : ''
+}
 
 // 渲染进程 Ctrl+滚轮（基础能力①）
-ipcMain.handle('app.zoom.set', (_e, factor) => applyZoom(Number(factor) || 1));
-ipcMain.handle('app.zoom.get', () => (mainWindow ? mainWindow.webContents.getZoomFactor() : 1));
+ipcMain.handle('app.zoom.set', (_event, factor) => applyZoom(Number(factor) || 1));
+ipcMain.handle('app.zoom.get', (event) => event.sender.getZoomFactor());
 
 app.whenReady().then(() => {
     createWindow();
@@ -222,13 +359,27 @@ app.on('window-all-closed', () => app.quit());
 `;
 }
 
-/** Preload 模板（各技术栈共用） */
-function preloadTemplate() {
+/** Preload 模板（各技术栈共用；window 模式追加设置窗口 API） */
+function preloadTemplate(withSettingsWindow) {
+    const appApi = [
+        `        zoomSet: (factor) => ipcRenderer.invoke('app.zoom.set', factor),`,
+        `        zoomGet: () => ipcRenderer.invoke('app.zoom.get'),`,
+        `        onZoomChanged: (callback) => ipcRenderer.on('app:zoomChanged', (_e, factor) => callback(factor)),`
+    ];
+    if (withSettingsWindow) {
+        appApi.push(
+            `        openSettings: () => ipcRenderer.invoke('app.settings.open'),`,
+            `        closeSettings: () => ipcRenderer.invoke('app.settings.close'),`,
+            `        notifySettingsChanged: (payload) => ipcRenderer.send('app.settings.changed', payload),`,
+            `        onSettingsChanged: (callback) => ipcRenderer.on('app:settingsChanged', (_e, payload) => callback(payload))`
+        );
+    }
+
     return `/**
  * ${TOKEN_NAME} — Preload 脚本
  *
  * 通过 contextBridge 暴露 canbox-core 公共服务（黑盒式，APP 不传 appId）
- * 以及本 APP 自有能力（缩放）。
+ * 以及本 APP 自有能力（缩放${withSettingsWindow ? '、设置窗口' : ''}）。
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
@@ -257,9 +408,7 @@ contextBridge.exposeInMainWorld('api', {
 
     // === 本 APP 自有能力 ===
     app: {
-        zoomSet: (factor) => ipcRenderer.invoke('app.zoom.set', factor),
-        zoomGet: () => ipcRenderer.invoke('app.zoom.get'),
-        onZoomChanged: (callback) => ipcRenderer.on('app:zoomChanged', (_e, factor) => callback(factor))
+${appApi.join('\n')}
     }
 });
 `;
@@ -274,7 +423,8 @@ function globalCssTemplate() {
 }
 
 html,
-body {
+body,
+#app {
     height: 100%;
     margin: 0;
 }
@@ -294,6 +444,7 @@ body {
 /* 例外：输入类控件恢复可选中，保证正常编辑 */
 input,
 textarea,
+select,
 [contenteditable='true'] {
     user-select: text;
     -webkit-user-select: text;
@@ -377,16 +528,73 @@ textarea,
     margin-bottom: 16px;
 }
 
-.field input {
+.field input,
+.select {
     padding: 8px 10px;
     border: 1px solid #dcdfe6;
     border-radius: 6px;
+    background: #ffffff;
     font-size: 14px;
     outline: none;
 }
 
-.field input:focus {
+.field input:focus,
+.select:focus {
     border-color: #409eff;
+}
+
+.settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.settings-header h2 {
+    margin: 0;
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.settings-label {
+    min-width: 72px;
+    color: #606266;
+}
+
+/* 设置打开方式：新窗口 */
+.settings-window {
+    height: 100%;
+    padding: 20px 24px;
+    overflow-y: auto;
+}
+
+/* 设置打开方式：弹层 */
+.modal-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.modal-mask[hidden] {
+    display: none;
+}
+
+.modal-panel {
+    width: min(680px, 90vw);
+    max-height: 85vh;
+    padding: 20px 24px;
+    overflow-y: auto;
+    border-radius: 10px;
+    background: #ffffff;
 }
 
 .progress {
@@ -463,11 +671,11 @@ kbd {
     font-family: inherit;
     font-size: 12px;
 }
-`;
-}
 
-function shortcutsTableRows() {
-    return SHORTCUT_ROWS.map(([keys, desc]) => `                    <tr><td>${keys}</td><td>${desc}</td></tr>`).join('\n');
+.plus {
+    color: #909399;
+}
+`;
 }
 
 /** 渲染进程缩放逻辑（Vue 模板共用） */
@@ -537,22 +745,72 @@ export default defineConfig({
 `;
 }
 
-function appVueTemplate(ts) {
-    return `<script setup${ts ? ' lang="ts"' : ''}>
+/** 各技术栈共用的 Vue i18n 初始化 */
+function vueI18nTemplate() {
+    return `import { createI18n } from 'vue-i18n';
+import zhCN from './locales/zh-CN.json';
+import enUS from './locales/en-US.json';
+
+const SUPPORTED = ['zh-CN', 'en-US'];
+
+function detectLocale() {
+    try {
+        const saved = localStorage.getItem('app.locale');
+        if (saved && SUPPORTED.indexOf(saved) >= 0) return saved;
+    } catch (e) {}
+    return navigator.language.startsWith('zh') ? 'zh-CN' : 'en-US';
+}
+
+const i18n = createI18n({
+    legacy: false,
+    locale: detectLocale(),
+    fallbackLocale: 'en-US',
+    messages: {
+        'zh-CN': zhCN,
+        'en-US': enUS
+    }
+});
+
+/**
+ * 语言设置的最终来源是 canbox store；
+ * localStorage 仅作为首帧镜像，避免异步读取完成前出现语言闪烁。
+ */
+export async function loadSavedLocale() {
+    try {
+        const saved = await window.api.store.get('settings', 'language');
+        if (typeof saved === 'string' && SUPPORTED.indexOf(saved) >= 0) {
+            i18n.global.locale.value = saved;
+            localStorage.setItem('app.locale', saved);
+        }
+    } catch (e) {}
+}
+
+export default i18n;
+`;
+}
+
+function appVueTemplate(settingsMode, ts) {
+    const lang = ts ? ' lang="ts"' : '';
+    const typing = ts ? ': KeyboardEvent' : '';
+    const returns = ts ? ': void' : '';
+
+    if (settingsMode === 'view') {
+        return `<script setup${lang}>
 import { onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 
+const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 
-function onKeydown(event${ts ? ': KeyboardEvent' : ''})${ts ? ': void' : ''} {
+function onKeydown(event${typing})${returns} {
     // 基础能力⑤：Ctrl+, 打开设置（用物理按键 e.code 判断，避免修饰键/输入法干扰）
     if (event.ctrlKey && event.code === 'Comma') {
         event.preventDefault();
         router.push('/settings');
         return;
     }
-    // Esc 关闭设置
     if (event.key === 'Escape' && route.name === 'settings') {
         router.push('/');
     }
@@ -565,10 +823,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 <template>
     <div class="shell">
         <header class="shell-header">
-            <span class="shell-title">${TOKEN_NAME}</span>
+            <span class="shell-title">{{ t('app.title') }}</span>
             <nav class="shell-nav">
-                <button class="nav-btn" :class="{ active: route.name === 'home' }" @click="router.push('/')">首页</button>
-                <button class="nav-btn" :class="{ active: route.name === 'settings' }" @click="router.push('/settings')">设置</button>
+                <button class="nav-btn" :class="{ active: route.name === 'home' }" @click="router.push('/')">{{ t('nav.home') }}</button>
+                <button class="nav-btn" :class="{ active: route.name === 'settings' }" @click="router.push('/settings')">{{ t('nav.settings') }}</button>
             </nav>
         </header>
         <main class="shell-body">
@@ -582,12 +840,125 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
     </div>
 </template>
 `;
+    }
+
+    if (settingsMode === 'modal') {
+        return `<script setup${lang}>
+import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { useI18n } from 'vue-i18n';
+import HomeView from './views/HomeView.vue';
+import SettingsView from './views/SettingsView.vue';
+
+const { t } = useI18n();
+const showSettings = ref(false);
+
+function openSettings()${returns} {
+    showSettings.value = true;
+}
+
+function closeSettings()${returns} {
+    showSettings.value = false;
+}
+
+function onKeydown(event${typing})${returns} {
+    if (event.ctrlKey && event.code === 'Comma') {
+        event.preventDefault();
+        openSettings();
+        return;
+    }
+    if (event.key === 'Escape' && showSettings.value) closeSettings();
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
+</script>
+
+<template>
+    <div class="shell">
+        <header class="shell-header">
+            <span class="shell-title">{{ t('app.title') }}</span>
+            <nav class="shell-nav">
+                <button class="nav-btn" :class="{ active: !showSettings }" @click="closeSettings">{{ t('nav.home') }}</button>
+                <button class="nav-btn" :class="{ active: showSettings }" @click="openSettings">{{ t('nav.settings') }}</button>
+            </nav>
+        </header>
+        <main class="shell-body">
+            <!-- 基础能力③：主界面始终挂载，弹层打开设置不丢失状态 -->
+            <HomeView />
+        </main>
+    </div>
+    <div v-if="showSettings" class="modal-mask" @click.self="closeSettings">
+        <div class="modal-panel">
+            <SettingsView @close="closeSettings" />
+        </div>
+    </div>
+</template>
+`;
+    }
+
+    // window 模式
+    return `<script setup${lang}>
+import { onMounted, onBeforeUnmount } from 'vue';
+import { useI18n } from 'vue-i18n';
+import HomeView from './views/HomeView.vue';
+import SettingsView from './views/SettingsView.vue';
+
+const { t, locale } = useI18n();
+const isSettingsWindow${ts ? ': boolean' : ''} = new URLSearchParams(window.location.search).has('settingsWindow');
+
+function openSettings()${returns} {
+    window.api.app.openSettings();
+}
+
+function closeSettings()${returns} {
+    window.api.app.closeSettings();
+}
+
+function onKeydown(event${typing})${returns} {
+    if (event.ctrlKey && event.code === 'Comma') {
+        event.preventDefault();
+        openSettings();
+        return;
+    }
+    if (event.key === 'Escape' && isSettingsWindow) closeSettings();
+}
+
+onMounted(() => {
+    window.addEventListener('keydown', onKeydown);
+    // 设置窗口修改语言后，主窗口据此同步界面
+    window.api.app.onSettingsChanged((payload${ts ? ': { language?: string }' : ''}) => {
+        if (payload && typeof payload.language === 'string') locale.value = payload.language;
+    });
+});
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
+</script>
+
+<template>
+    <div v-if="isSettingsWindow" class="settings-window">
+        <SettingsView @close="closeSettings" />
+    </div>
+    <div v-else class="shell">
+        <header class="shell-header">
+            <span class="shell-title">{{ t('app.title') }}</span>
+            <nav class="shell-nav">
+                <button class="nav-btn active">{{ t('nav.home') }}</button>
+                <button class="nav-btn" @click="openSettings">{{ t('nav.settings') }}</button>
+            </nav>
+        </header>
+        <main class="shell-body">
+            <HomeView />
+        </main>
+    </div>
+</template>
+`;
 }
 
 function homeViewTemplate(ts) {
     return `<script setup${ts ? ' lang="ts"' : ''}>
 import { ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
+const { t } = useI18n();
 const note = ref('');
 const progress = ref(0);
 ${ts ? 'let timer: ReturnType<typeof setInterval> | null = null;' : 'let timer = null;'}
@@ -616,39 +987,99 @@ function resetTask()${ts ? ': void' : ''} {
 
 <template>
     <section class="view">
-        <h2>首页</h2>
-        <p class="hint">切换界面后回到本页，输入内容与任务进度会原样保留。</p>
+        <h2>{{ t('home.title') }}</h2>
+        <p class="hint">{{ t('home.hint') }}</p>
         <label class="field">
-            <span>备忘</span>
-            <input v-model="note" placeholder="输入内容，切到「设置」再回来看看" />
+            <span>{{ t('home.note') }}</span>
+            <input v-model="note" :placeholder="t('home.notePlaceholder')" />
         </label>
         <div class="field">
-            <span>长任务进度：{{ progress }}%</span>
+            <span>{{ t('home.progress', { percent: progress }) }}</span>
             <div class="progress">
                 <div class="progress-bar" :style="{ width: progress + '%' }"></div>
             </div>
         </div>
         <div class="actions">
-            <button class="btn primary" @click="startTask">开始任务</button>
-            <button class="btn" @click="resetTask">重置</button>
+            <button class="btn primary" @click="startTask">{{ t('home.start') }}</button>
+            <button class="btn" @click="resetTask">{{ t('home.reset') }}</button>
         </div>
     </section>
 </template>
 `;
 }
 
-function settingsViewTemplate() {
-    return `<template>
-    <section class="view">
-        <h2>设置</h2>
-        <p class="hint">窗口大小与位置、缩放比例会被记住，重启后自动恢复。</p>
-        <h3>快捷键</h3>
+function settingsViewTemplate(settingsMode, ts) {
+    const withClose = settingsMode !== 'view';
+    const notifyMainWindow = settingsMode === 'window';
+    const emitDecl = withClose ? `\nconst emit = defineEmits(['close']);\n` : '';
+    const closeButton = withClose
+        ? `\n            <button class="btn" @click="emit('close')">{{ t('settings.close') }}</button>`
+        : '';
+
+    return `<script setup${ts ? ' lang="ts"' : ''}>
+import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+const { t, locale } = useI18n();
+const currentLocale = ref(locale.value);${emitDecl}
+const LANGUAGES = [
+    { value: 'zh-CN', label: '简体中文' },
+    { value: 'en-US', label: 'English' }
+];
+
+// 基础能力⑤：快捷键清单需与主进程、渲染层实际实现保持一致
+const shortcuts = computed(() => [
+    { keys: 'Ctrl + ' + t('shortcut.wheel'), desc: t('shortcut.zoomWheel') },
+    { keys: 'Ctrl + =', desc: t('shortcut.zoomIn') },
+    { keys: 'Ctrl + -', desc: t('shortcut.zoomOut') },
+    { keys: 'Ctrl + 0', desc: t('shortcut.zoomReset') },
+    { keys: 'Ctrl + ,', desc: t('shortcut.openSettings') },
+    { keys: 'Esc', desc: t('shortcut.closeSettings') }
+]);
+
+/** 语言设置以 canbox store 为准，localStorage 仅作首帧镜像 */
+function applyLocale(value${ts ? ': string' : ''})${ts ? ': void' : ''} {
+    locale.value = value;
+    currentLocale.value = value;
+    try {
+        localStorage.setItem('app.locale', value);
+    } catch (e) {}
+    window.api.store.set('settings', 'language', value).catch(() => {});
+    ${notifyMainWindow ? "window.api.app.notifySettingsChanged({ language: value });" : ''}
+}
+
+function onLanguageChange(event${ts ? ': Event' : ''})${ts ? ': void' : ''} {
+    const target = event.target${ts ? ' as HTMLSelectElement' : ''};
+    applyLocale(target.value);
+}
+</script>
+
+<template>
+    <section class="view settings-view">
+        <div class="settings-header">
+            <h2>{{ t('settings.title') }}</h2>${closeButton}
+        </div>
+        <p class="hint">{{ t('settings.hint') }}</p>
+        <div class="settings-row">
+            <span class="settings-label">{{ t('settings.language') }}</span>
+            <select class="select" :value="currentLocale" @change="onLanguageChange">
+                <option v-for="lang in LANGUAGES" :key="lang.value" :value="lang.value">{{ lang.label }}</option>
+            </select>
+        </div>
+        <h3>{{ t('settings.shortcuts') }}</h3>
         <table class="shortcuts">
             <thead>
-                <tr><th>快捷键</th><th>功能</th></tr>
+                <tr><th>{{ t('settings.shortcut') }}</th><th>{{ t('settings.action') }}</th></tr>
             </thead>
             <tbody>
-${shortcutsTableRows()}
+                <tr v-for="item in shortcuts" :key="item.desc">
+                    <td>
+                        <template v-for="(key, index) in item.keys.split(' + ')" :key="index">
+                            <span v-if="index > 0"> + </span><kbd>{{ key }}</kbd>
+                        </template>
+                    </td>
+                    <td>{{ item.desc }}</td>
+                </tr>
             </tbody>
         </table>
     </section>
@@ -673,15 +1104,23 @@ export default router;
 `;
 }
 
-function vueEntryTemplate() {
+function vueEntryTemplate(settingsMode) {
+    const withRouter = settingsMode === 'view';
+    const routerImport = withRouter ? `import router from './router';\n` : '';
+    const routerUse = withRouter ? `    .use(router)\n` : '';
+
     return `import { createApp } from 'vue';
 import App from './App.vue';
-import router from './router';
+${routerImport}import i18n, { loadSavedLocale } from './i18n';
 import './styles/global.css';
 import { setupZoom } from './zoom';
 
-createApp(App).use(router).mount('#app');
+createApp(App)
+${routerUse}    .use(i18n)
+    .mount('#app');
+
 setupZoom();
+loadSavedLocale();
 `;
 }
 
@@ -719,6 +1158,10 @@ interface Window {
             zoomGet: () => Promise<number>;
             zoomSet: (factor: number) => Promise<number>;
             onZoomChanged: (callback: (factor: number) => void) => void;
+            openSettings: () => Promise<void>;
+            closeSettings: () => Promise<void>;
+            notifySettingsChanged: (payload: Record<string, unknown>) => void;
+            onSettingsChanged: (callback: (payload: Record<string, unknown>) => void) => void;
         };
     };
 }
@@ -731,7 +1174,13 @@ declare module '*.vue' {
 `;
 }
 
-function readmeTemplate(templateId) {
+const SETTINGS_MODE_LABELS = {
+    view: '切换界面',
+    modal: '弹层',
+    window: '新窗口'
+};
+
+function readmeTemplate(templateId, settingsMode) {
     const vue = templateId !== 'vanilla-js';
     const lines = [
         `# ${TOKEN_NAME}`,
@@ -766,14 +1215,6 @@ function readmeTemplate(templateId) {
             '## 打包分发',
             '',
             '在 canbox-developer 的「开发项目」中点击打包按钮，选择构建产物目录压成 canbox 标准 zip。',
-            '',
-            '## 基础能力',
-            '',
-            '- 界面缩放：`Ctrl` + 滚轮、`Ctrl` + `=`、`Ctrl` + `-`、`Ctrl` + `0`（比例持久化）',
-            '- 窗口大小与位置记忆恢复',
-            '- 界面切换状态保持（路由视图 `keep-alive` 缓存）',
-            '- 全局禁止选中与复制（输入控件除外）',
-            '- 「设置」界面中的快捷键条目',
             ''
         );
     } else {
@@ -791,41 +1232,34 @@ function readmeTemplate(templateId) {
             '```',
             '',
             '也可在 canbox-developer 的「开发项目」中点击运行。',
-            '',
-            '## 基础能力',
-            '',
-            '- 界面缩放：`Ctrl` + 滚轮、`Ctrl` + `=`、`Ctrl` + `-`、`Ctrl` + `0`（比例持久化）',
-            '- 窗口大小与位置记忆恢复',
-            '- 界面切换状态保持（切换显示而非销毁 DOM）',
-            '- 全局禁止选中与复制（输入控件除外）',
-            '- 「设置」界面中的快捷键条目',
             ''
         );
     }
+
+    lines.push(
+        '## 基础能力',
+        '',
+        '- 界面缩放：`Ctrl` + 滚轮、`Ctrl` + `=`、`Ctrl` + `-`、`Ctrl` + `0`（比例持久化）',
+        '- 窗口大小与位置记忆恢复',
+        '- 界面切换状态保持（切换显示而非销毁界面）',
+        '- 全局禁止选中与复制（输入控件除外）',
+        '- 「设置」界面中的快捷键条目',
+        '- 中英双语：设置中切换语言，canbox store 持久化，重启后保持',
+        `- 设置打开方式：${SETTINGS_MODE_LABELS[settingsMode]}`,
+        '',
+        '## 图标',
+        '',
+        '已预置默认图标；替换根目录的 `logo.png` 与 `icons/` 下的 PNG 即可更换 APP 图标。',
+        ''
+    );
+
     return lines.join('\n');
 }
 
-/** package.json（按技术栈产出对应依赖与脚本） */
+/** package.json（按技术栈与设置打开方式产出对应依赖与脚本） */
 function buildPackageJson(options) {
-    const { name, description, author, template, injectionPath, electronRange } = options;
+    const { name, description, author, template, injectionPath, electronRange, settingsMode } = options;
     const startScript = `electron -r "${injectionPath}" . --app-id=${name} --no-sandbox`;
-
-    if (template === 'vanilla-js') {
-        return {
-            name,
-            version: '0.0.1',
-            description: description || '',
-            main: 'main.js',
-            author: author || '',
-            license: 'Apache-2.0',
-            scripts: {
-                start: startScript
-            },
-            devDependencies: {
-                electron: electronRange
-            }
-        };
-    }
 
     const pkg = {
         name,
@@ -834,20 +1268,31 @@ function buildPackageJson(options) {
         main: 'main.js',
         author: author || '',
         license: 'Apache-2.0',
-        scripts: {
-            dev: 'vite',
-            build: 'vite build',
-            start: startScript
-        },
-        dependencies: {
-            vue: VUE_VERSION,
-            'vue-router': VUE_ROUTER_VERSION
-        },
-        devDependencies: {
-            '@vitejs/plugin-vue': PLUGIN_VUE_VERSION,
-            electron: electronRange,
-            vite: VITE_VERSION
-        }
+        logo: 'logo.png'
+    };
+
+    if (template === 'vanilla-js') {
+        pkg.scripts = { start: startScript };
+        pkg.devDependencies = { electron: electronRange };
+        return pkg;
+    }
+
+    pkg.scripts = {
+        dev: 'vite',
+        build: 'vite build',
+        start: startScript
+    };
+    pkg.dependencies = {
+        vue: VUE_VERSION,
+        'vue-i18n': VUE_I18N_VERSION
+    };
+    if (settingsMode === 'view') {
+        pkg.dependencies['vue-router'] = VUE_ROUTER_VERSION;
+    }
+    pkg.devDependencies = {
+        '@vitejs/plugin-vue': PLUGIN_VUE_VERSION,
+        electron: electronRange,
+        vite: VITE_VERSION
     };
     if (template === 'vue3-ts') {
         pkg.devDependencies.typescript = TS_VERSION;
@@ -859,21 +1304,27 @@ function buildPackageJson(options) {
 function buildVueFiles(options) {
     const ts = options.template === 'vue3-ts';
     const ext = ts ? 'ts' : 'js';
+    const mode = options.settingsMode;
     const files = {
         'package.json': JSON.stringify(buildPackageJson(options), null, 4) + '\n',
-        'main.js': mainJsTemplate(),
-        'preload.js': preloadTemplate(),
+        'main.js': mainJsTemplate(mode === 'window'),
+        'preload.js': preloadTemplate(mode === 'window'),
         'index.html': vueIndexHtml(ext),
         'vite.config.js': viteConfigTemplate(),
-        'README.md': readmeTemplate(options.template),
-        ['src/main.' + ext]: vueEntryTemplate(),
-        ['src/router.' + ext]: routerTemplate(),
+        'README.md': readmeTemplate(options.template, mode),
+        ['src/main.' + ext]: vueEntryTemplate(mode),
+        ['src/i18n/index.' + ext]: vueI18nTemplate(),
+        'src/i18n/locales/zh-CN.json': JSON.stringify(MESSAGES['zh-CN'], null, 4) + '\n',
+        'src/i18n/locales/en-US.json': JSON.stringify(MESSAGES['en-US'], null, 4) + '\n',
         ['src/zoom.' + ext]: zoomModuleTemplate(ts),
-        'src/App.vue': appVueTemplate(ts),
+        'src/App.vue': appVueTemplate(mode, ts),
         'src/views/HomeView.vue': homeViewTemplate(ts),
-        'src/views/SettingsView.vue': settingsViewTemplate(),
+        'src/views/SettingsView.vue': settingsViewTemplate(mode, ts),
         'src/styles/global.css': globalCssTemplate()
     };
+    if (mode === 'view') {
+        files['src/router.' + ext] = routerTemplate();
+    }
     if (ts) {
         files['tsconfig.json'] = tsConfigTemplate();
         files['src/env.d.ts'] = envDTemplate();
@@ -883,16 +1334,17 @@ function buildVueFiles(options) {
 
 /** 原生 JavaScript 技术栈（无构建）文件集 */
 function buildVanillaFiles(options) {
-    const files = {
+    const mode = options.settingsMode;
+    return {
         'package.json': JSON.stringify(buildPackageJson(options), null, 4) + '\n',
-        'main.js': mainJsTemplate(),
-        'preload.js': preloadTemplate(),
+        'main.js': mainJsTemplate(mode === 'window'),
+        'preload.js': preloadTemplate(mode === 'window'),
         'index.html': vanillaIndexHtml(),
-        'README.md': readmeTemplate(options.template),
-        'src/app.js': vanillaAppTemplate(),
+        'README.md': readmeTemplate(options.template, mode),
+        'src/i18n.js': vanillaI18nTemplate(),
+        'src/app.js': vanillaAppTemplate(mode),
         'src/styles/global.css': globalCssTemplate()
     };
-    return files;
 }
 
 function vanillaIndexHtml() {
@@ -905,168 +1357,409 @@ function vanillaIndexHtml() {
     <link rel="stylesheet" href="./src/styles/global.css" />
 </head>
 <body>
-    <div class="shell">
-        <header class="shell-header">
-            <span class="shell-title">${TOKEN_NAME}</span>
-            <nav class="shell-nav">
-                <button class="nav-btn active" data-view="home">首页</button>
-                <button class="nav-btn" data-view="settings">设置</button>
-            </nav>
-        </header>
-        <main class="shell-body">
-            <!-- 基础能力③：切换界面仅改变显示，不销毁 DOM，状态得以保留 -->
-            <section id="view-home" class="view">
-                <h2>首页</h2>
-                <p class="hint">切换界面后回到本页，输入内容与任务进度会原样保留。</p>
-                <label class="field">
-                    <span>备忘</span>
-                    <input id="note" type="text" placeholder="输入内容，切到「设置」再回来看看" />
-                </label>
-                <div class="field">
-                    <span id="progress-text">长任务进度：0%</span>
-                    <div class="progress">
-                        <div id="progress-bar" class="progress-bar" data-value="0"></div>
-                    </div>
-                </div>
-                <div class="actions">
-                    <button id="start-task" class="btn primary">开始任务</button>
-                    <button id="reset-task" class="btn">重置</button>
-                </div>
-            </section>
-            <section id="view-settings" class="view" hidden>
-                <h2>设置</h2>
-                <p class="hint">窗口大小与位置、缩放比例会被记住，重启后自动恢复。</p>
-                <h3>快捷键</h3>
-                <table class="shortcuts">
-                    <thead>
-                        <tr><th>快捷键</th><th>功能</th></tr>
-                    </thead>
-                    <tbody>
-${shortcutsTableRows()}
-                    </tbody>
-                </table>
-            </section>
-        </main>
-    </div>
+    <div id="app"></div>
+    <script src="./src/i18n.js"></script>
     <script src="./src/app.js"></script>
 </body>
 </html>
 `;
 }
 
-function vanillaAppTemplate() {
+/** 原生 JavaScript 的轻量 i18n（无构建依赖，挂在 window.AppI18n） */
+function vanillaI18nTemplate() {
     return `/**
- * ${TOKEN_NAME} — 渲染进程入口（原生 JavaScript，无构建步骤）
+ * ${TOKEN_NAME} — 轻量 i18n（无构建依赖）
  */
+(function () {
+    const STORAGE_KEY = 'app.locale';
+    const SUPPORTED = ['zh-CN', 'en-US'];
+    const MESSAGES = ${JSON.stringify(MESSAGES, null, 8)};
 
-const api = window.api;
+    function detectLocale() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved && SUPPORTED.indexOf(saved) >= 0) return saved;
+        } catch (e) {}
+        return navigator.language.startsWith('zh') ? 'zh-CN' : 'en-US';
+    }
 
-// ===== 基础能力③：界面切换（仅切换显示，不销毁 DOM，状态保留）=====
-const views = {
-    home: document.getElementById('view-home'),
-    settings: document.getElementById('view-settings')
-};
-const navButtons = Array.from(document.querySelectorAll('[data-view]'));
+    let locale = detectLocale();
 
-function switchView(name) {
-    Object.keys(views).forEach((key) => {
-        views[key].hidden = key !== name;
+    function lookup(object, path) {
+        return path.split('.').reduce(function (value, key) {
+            return value !== undefined && value !== null ? value[key] : undefined;
+        }, object);
+    }
+
+    function t(key, params) {
+        let text = lookup(MESSAGES[locale], key);
+        if (text === undefined) text = lookup(MESSAGES['en-US'], key);
+        if (text === undefined) text = key;
+        if (params) {
+            Object.keys(params).forEach(function (name) {
+                text = text.split('{' + name + '}').join(String(params[name]));
+            });
+        }
+        return text;
+    }
+
+    function setLocale(value) {
+        if (SUPPORTED.indexOf(value) < 0) return;
+        locale = value;
+        try {
+            localStorage.setItem(STORAGE_KEY, value);
+        } catch (e) {}
+    }
+
+    function getLocale() {
+        return locale;
+    }
+
+    function apply(root) {
+        const scope = root || document;
+        scope.querySelectorAll('[data-i18n]').forEach(function (element) {
+            element.textContent = t(element.getAttribute('data-i18n'));
+        });
+        scope.querySelectorAll('[data-i18n-placeholder]').forEach(function (element) {
+            element.setAttribute('placeholder', t(element.getAttribute('data-i18n-placeholder')));
+        });
+    }
+
+    window.AppI18n = {
+        t: t,
+        setLocale: setLocale,
+        getLocale: getLocale,
+        apply: apply
+    };
+})();
+`;
+}
+
+/** 原生 JavaScript 的共享逻辑（三种设置打开方式共用） */
+function vanillaSharedJs(settingsMode) {
+    const notify = settingsMode === 'window'
+        ? `\n    canboxApi.app.notifySettingsChanged({ language: value });`
+        : '';
+
+    return `const canboxApi = window.api;
+const i18n = window.AppI18n;
+
+let progress = 0;
+let timer = null;
+
+// 基础能力⑤：快捷键清单需与主进程、渲染层实际实现保持一致
+const SHORTCUTS = [
+    [['Ctrl', 'WHEEL'], 'shortcut.zoomWheel'],
+    [['Ctrl', '='], 'shortcut.zoomIn'],
+    [['Ctrl', '-'], 'shortcut.zoomOut'],
+    [['Ctrl', '0'], 'shortcut.zoomReset'],
+    [['Ctrl', ','], 'shortcut.openSettings'],
+    [['Esc'], 'shortcut.closeSettings']
+];
+
+function shortcutRowsHtml() {
+    return SHORTCUTS.map(function (item) {
+        const keys = item[0].map(function (key) {
+            return key === 'WHEEL' ? i18n.t('shortcut.wheel') : key;
+        });
+        const cells = keys.map(function (key) {
+            return '<kbd>' + key + '</kbd>';
+        }).join(' <span class="plus">+</span> ');
+        return '<tr><td>' + cells + '</td><td>' + i18n.t(item[1]) + '</td></tr>';
+    }).join('');
+}
+
+function renderShortcutRows() {
+    const tbody = document.getElementById('shortcut-rows');
+    if (tbody) tbody.innerHTML = shortcutRowsHtml();
+}
+
+function homeSection(id) {
+    const attr = id ? ' id="' + id + '"' : '';
+    return '<section class="view"' + attr + '>' +
+        '<h2 data-i18n="home.title"></h2>' +
+        '<p class="hint" data-i18n="home.hint"></p>' +
+        '<label class="field"><span data-i18n="home.note"></span>' +
+        '<input id="note" type="text" data-i18n-placeholder="home.notePlaceholder" /></label>' +
+        '<div class="field"><span id="progress-text"></span>' +
+        '<div class="progress"><div id="progress-bar" class="progress-bar"></div></div></div>' +
+        '<div class="actions"><button id="start-task" class="btn primary" data-i18n="home.start"></button>' +
+        '<button id="reset-task" class="btn" data-i18n="home.reset"></button></div>' +
+        '</section>';
+}
+
+function settingsSection(options) {
+    const id = options.id ? ' id="' + options.id + '"' : '';
+    const hidden = options.hidden ? ' hidden' : '';
+    const closeButton = options.close
+        ? '<button id="settings-close" class="btn" data-i18n="settings.close"></button>'
+        : '';
+    return '<section class="view settings-view"' + id + hidden + '>' +
+        '<div class="settings-header"><h2 data-i18n="settings.title"></h2>' + closeButton + '</div>' +
+        '<p class="hint" data-i18n="settings.hint"></p>' +
+        '<div class="settings-row"><span class="settings-label" data-i18n="settings.language"></span>' +
+        '<select id="language-select" class="select">' +
+        '<option value="zh-CN">简体中文</option>' +
+        '<option value="en-US">English</option>' +
+        '</select></div>' +
+        '<h3 data-i18n="settings.shortcuts"></h3>' +
+        '<table class="shortcuts"><thead><tr>' +
+        '<th data-i18n="settings.shortcut"></th><th data-i18n="settings.action"></th>' +
+        '</tr></thead><tbody id="shortcut-rows"></tbody></table>' +
+        '</section>';
+}
+
+function renderProgress() {
+    const text = document.getElementById('progress-text');
+    const bar = document.getElementById('progress-bar');
+    if (!text || !bar) return;
+    text.textContent = i18n.t('home.progress', { percent: progress });
+    bar.style.width = progress + '%';
+}
+
+function bindHome() {
+    const start = document.getElementById('start-task');
+    const reset = document.getElementById('reset-task');
+    if (!start || !reset) return;
+    start.addEventListener('click', function () {
+        if (timer) return;
+        timer = setInterval(function () {
+            progress = Math.min(100, progress + 5);
+            if (progress >= 100) {
+                clearInterval(timer);
+                timer = null;
+            }
+            renderProgress();
+        }, 300);
     });
-    navButtons.forEach((button) => {
-        button.classList.toggle('active', button.dataset.view === name);
+    reset.addEventListener('click', function () {
+        if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+        progress = 0;
+        renderProgress();
     });
 }
 
-navButtons.forEach((button) => {
-    button.addEventListener('click', () => switchView(button.dataset.view));
-});
+function applyLocale(value) {
+    i18n.setLocale(value);
+    i18n.apply();
+    renderShortcutRows();
+    renderProgress();
+    canboxApi.store.set('settings', 'language', value).catch(function () {});${notify}
+}
+
+function bindLanguageSelect() {
+    const select = document.getElementById('language-select');
+    if (!select) return;
+    select.value = i18n.getLocale();
+    select.addEventListener('change', function (event) {
+        applyLocale(event.target.value);
+    });
+}
+
+function refreshTexts() {
+    i18n.apply();
+    renderShortcutRows();
+    renderProgress();
+    const select = document.getElementById('language-select');
+    if (select) select.value = i18n.getLocale();
+}
+
+// 语言设置以 canbox store 为准，localStorage 仅作首帧镜像
+canboxApi.store.get('settings', 'language').then(function (saved) {
+    if (typeof saved !== 'string' || saved === i18n.getLocale()) return;
+    i18n.setLocale(saved);
+    refreshTexts();
+}).catch(function () {});
 
 // ===== 基础能力①：Ctrl + 鼠标滚轮缩放界面 =====
 let zoomFactor = 1;
 
-api.app.zoomGet().then((value) => {
+canboxApi.app.zoomGet().then(function (value) {
     if (typeof value === 'number') zoomFactor = value;
 });
-api.app.onZoomChanged((value) => {
+canboxApi.app.onZoomChanged(function (value) {
     zoomFactor = value;
 });
 
 window.addEventListener(
     'wheel',
-    (event) => {
+    function (event) {
         if (!event.ctrlKey) return;
         event.preventDefault();
         const next = zoomFactor + (event.deltaY > 0 ? -0.1 : 0.1);
-        api.app.zoomSet(Math.min(2, Math.max(0.5, Math.round(next * 10) / 10)));
+        canboxApi.app.zoomSet(Math.min(2, Math.max(0.5, Math.round(next * 10) / 10)));
     },
     { passive: false }
 );
+`;
+}
 
-// ===== 基础能力⑤：Ctrl+, 打开设置；Esc 关闭设置 =====
-window.addEventListener('keydown', (event) => {
+/** 原生 JavaScript 渲染进程入口（按设置打开方式选择不同界面结构） */
+function vanillaAppTemplate(settingsMode) {
+    const shared = vanillaSharedJs(settingsMode);
+    const header = `'<header class="shell-header"><span class="shell-title" data-i18n="app.title"></span>' +
+    '<nav class="shell-nav">' +
+    '<button id="nav-home" class="nav-btn active" data-i18n="nav.home"></button>' +
+    '<button id="nav-settings" class="nav-btn" data-i18n="nav.settings"></button>' +
+    '</nav></header>'`;
+
+    let modeBlock;
+
+    if (settingsMode === 'view') {
+        modeBlock = `// ===== 基础能力③：界面切换（仅切换显示，不销毁 DOM，状态保留）=====
+const root = document.getElementById('app');
+root.innerHTML = '<div class="shell">' + ${header} +
+    '<main class="shell-body">' + homeSection('view-home') +
+    settingsSection({ id: 'view-settings', hidden: true }) + '</main></div>';
+
+function switchView(name) {
+    document.getElementById('view-home').hidden = name !== 'home';
+    document.getElementById('view-settings').hidden = name !== 'settings';
+    document.getElementById('nav-home').classList.toggle('active', name === 'home');
+    document.getElementById('nav-settings').classList.toggle('active', name === 'settings');
+}
+
+document.getElementById('nav-home').addEventListener('click', function () {
+    switchView('home');
+});
+document.getElementById('nav-settings').addEventListener('click', function () {
+    switchView('settings');
+});
+
+// 基础能力⑤：Ctrl+, 打开设置；Esc 关闭设置
+window.addEventListener('keydown', function (event) {
     if (event.ctrlKey && event.code === 'Comma') {
         event.preventDefault();
         switchView('settings');
         return;
     }
-    if (event.key === 'Escape') {
-        switchView('home');
-    }
+    if (event.key === 'Escape') switchView('home');
 });
 
-// ===== 演示：长任务进度在切换界面时不中断 =====
-const progressBar = document.getElementById('progress-bar');
-const progressText = document.getElementById('progress-text');
-let timer = null;
+bindHome();
+bindLanguageSelect();
+refreshTexts();
+`;
+    } else if (settingsMode === 'modal') {
+        modeBlock = `// ===== 设置弹层：主界面始终挂载，打开设置不丢失状态 =====
+const root = document.getElementById('app');
+root.innerHTML = '<div class="shell">' + ${header} +
+    '<main class="shell-body">' + homeSection() + '</main></div>' +
+    '<div id="modal-mask" class="modal-mask" hidden><div class="modal-panel">' +
+    settingsSection({ close: true }) + '</div></div>';
 
-function renderProgress() {
-    const value = Number(progressBar.dataset.value) || 0;
-    progressBar.style.width = value + '%';
-    progressText.textContent = '长任务进度：' + value + '%';
+function setSettingsOpen(open) {
+    document.getElementById('modal-mask').hidden = !open;
+    document.getElementById('nav-home').classList.toggle('active', !open);
+    document.getElementById('nav-settings').classList.toggle('active', open);
 }
 
-document.getElementById('start-task').addEventListener('click', () => {
-    if (timer) return;
-    timer = setInterval(() => {
-        let value = Number(progressBar.dataset.value) + 5;
-        if (value >= 100) {
-            value = 100;
-            clearInterval(timer);
-            timer = null;
-        }
-        progressBar.dataset.value = String(value);
-        renderProgress();
-    }, 300);
+document.getElementById('nav-home').addEventListener('click', function () {
+    setSettingsOpen(false);
+});
+document.getElementById('nav-settings').addEventListener('click', function () {
+    setSettingsOpen(true);
+});
+document.getElementById('settings-close').addEventListener('click', function () {
+    setSettingsOpen(false);
+});
+document.getElementById('modal-mask').addEventListener('click', function (event) {
+    if (event.target === event.currentTarget) setSettingsOpen(false);
 });
 
-document.getElementById('reset-task').addEventListener('click', () => {
-    if (timer) {
-        clearInterval(timer);
-        timer = null;
+// 基础能力⑤：Ctrl+, 打开设置；Esc 关闭设置
+window.addEventListener('keydown', function (event) {
+    if (event.ctrlKey && event.code === 'Comma') {
+        event.preventDefault();
+        setSettingsOpen(true);
+        return;
     }
-    progressBar.dataset.value = '0';
-    renderProgress();
+    if (event.key === 'Escape') setSettingsOpen(false);
 });
 
-renderProgress();
+bindHome();
+bindLanguageSelect();
+refreshTexts();
 `;
+    } else {
+        modeBlock = `// ===== 设置新窗口：主窗口与设置窗口共用本脚本 =====
+const root = document.getElementById('app');
+const isSettingsWindow = new URLSearchParams(location.search).has('settingsWindow');
+
+function openSettingsWindow() {
+    canboxApi.app.openSettings();
+}
+
+function closeSettingsWindow() {
+    canboxApi.app.closeSettings();
+}
+
+if (isSettingsWindow) {
+    root.innerHTML = '<div class="settings-window">' + settingsSection({ close: true }) + '</div>';
+    document.getElementById('settings-close').addEventListener('click', closeSettingsWindow);
+    window.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') closeSettingsWindow();
+    });
+} else {
+    root.innerHTML = '<div class="shell">' +
+        '<header class="shell-header"><span class="shell-title" data-i18n="app.title"></span>' +
+        '<nav class="shell-nav">' +
+        '<button class="nav-btn active" data-i18n="nav.home"></button>' +
+        '<button id="open-settings" class="nav-btn" data-i18n="nav.settings"></button>' +
+        '</nav></header>' +
+        '<main class="shell-body">' + homeSection() + '</main></div>';
+    document.getElementById('open-settings').addEventListener('click', openSettingsWindow);
+    window.addEventListener('keydown', function (event) {
+        if (event.ctrlKey && event.code === 'Comma') {
+            event.preventDefault();
+            openSettingsWindow();
+        }
+    });
+
+    // 设置窗口修改语言后同步主窗口
+    canboxApi.app.onSettingsChanged(function (payload) {
+        if (!payload || typeof payload.language !== 'string') return;
+        i18n.setLocale(payload.language);
+        refreshTexts();
+    });
+}
+
+bindHome();
+bindLanguageSelect();
+refreshTexts();
+`;
+    }
+
+    return `/**
+ * ${TOKEN_NAME} — 渲染进程入口（原生 JavaScript，无构建步骤）
+ *
+ * 设置打开方式：${SETTINGS_MODE_LABELS[settingsMode]}
+ */
+
+${shared}
+${modeBlock}`;
 }
 
 /**
  * 生成骨架文件集
- * @param {object} options - { name, description, author, template, injectionPath, electronRange }
+ * @param {object} options - { name, description, author, template, settingsMode, injectionPath, electronRange }
  * @returns {{ files: Object<string, string> }}
  */
 function buildScaffold(options) {
     const template = options.template || 'vue3-js';
-    const files = template === 'vanilla-js' ? buildVanillaFiles(options) : buildVueFiles(options);
+    const settingsMode = SETTINGS_MODES.indexOf(options.settingsMode) >= 0 ? options.settingsMode : 'view';
+    const normalized = { ...options, settingsMode };
+    const files = template === 'vanilla-js' ? buildVanillaFiles(normalized) : buildVueFiles(normalized);
 
     // 占位符替换（用 split/join 避免正则特殊字符问题）
     const replacements = [
-        [TOKEN_INJECTION, options.injectionPath],
-        [TOKEN_ELECTRON, options.electronRange],
+        [TOKEN_INJECTION, normalized.injectionPath],
+        [TOKEN_ELECTRON, normalized.electronRange],
         [TOKEN_RENDERER, template === 'vanilla-js' ? 'static' : 'vite'],
-        [TOKEN_NAME, options.name]
+        [TOKEN_NAME, normalized.name]
     ];
     const out = {};
     Object.keys(files).forEach((relPath) => {
@@ -1080,4 +1773,4 @@ function buildScaffold(options) {
     return { files: out };
 }
 
-module.exports = { buildScaffold, isValidAppName };
+module.exports = { buildScaffold, isValidAppName, SETTINGS_MODES };
