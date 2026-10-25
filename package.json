@@ -2,7 +2,7 @@
     "name": "canbox-developer",
     "displayName": "DevBox",
     "id": "com.github.canbox-io.canbox-developer",
-    "version": "0.1.8",
+    "version": "0.1.9",
     "description": "Canbox 开发者工具 APP — 脚手架创建、源码目录调试启动、打包发布",
     "main": "main.js",
     "logo": "logo.png",
