@@ -4,6 +4,36 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.1.9] - 2026-10-25
+
+### feat | 新功能 / Features
+
+启动器显示名改为 DevBox（新增 displayName，包名、id 与安装标识保持不变）
+新增骨架默认图标（盒子 + 加号），新建 APP 时自动带入 logo.png 及 48/128/256/512 多尺寸图标
+"新建APP"新增「设置界面打开方式」选项：切换界面、弹层、新窗口，三种技术栈模板均支持
+骨架内置中英双语，设置中可切换语言并持久化到 canbox store，下次启动保持用户选择
+新窗口模式下设置窗口以主窗口为父窗口，随主窗口最小化与关闭
+
+Change the launcher display name to DevBox (adds displayName; package name, id and install identity unchanged)
+Add a default scaffold icon (box + plus) shipped into new APPs as logo.png plus 48/128/256/512 icons
+Add a "Settings screen opening" option to New App: switch view, modal, or new window, supported by all three templates
+Build bilingual (zh-CN / en-US) scaffold templates with a language selector persisted in canbox store and restored on next launch
+Make the standalone settings window a child of the main window in new-window mode
+
+### docs | 文档 / Documentation
+
+新增简体中文 README 并同步更新英文 README 内容
+首页标题改为 Canbox Developer Box
+
+Add a Simplified Chinese README and sync updates to the English README
+Change the home page title to Canbox Developer Box
+
+### build | 构建 / Build
+
+版本号更新至 0.1.9
+
+Bump version to 0.1.9
+
 ## [0.1.8] - 2026-10-20
 
 ### feat | 新功能 / Features
