@@ -39,6 +39,7 @@ const NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
 const form = ref({
     name: '',
+    displayName: '',
     description: '',
     author: '',
     template: 'vue3-js',
@@ -95,6 +96,7 @@ async function createProject() {
             form.value.targetDir,
             {
                 name: form.value.name,
+                displayName: form.value.displayName.trim(),
                 description: form.value.description,
                 author: form.value.author,
                 template: form.value.template,
@@ -157,6 +159,10 @@ onUnmounted(() => {
             <el-form :model="form" label-width="100px" style="max-width: 560px;">
                 <el-form-item :label="t('scaffold.appName')" required>
                     <el-input v-model="form.name" :placeholder="t('scaffold.appNamePlaceholder')" />
+                </el-form-item>
+                <el-form-item :label="t('scaffold.displayName')">
+                    <el-input v-model="form.displayName" :placeholder="t('scaffold.displayNamePlaceholder')" />
+                    <div class="form-hint">{{ t('scaffold.displayNameHint') }}</div>
                 </el-form-item>
                 <el-form-item :label="t('scaffold.description')">
                     <el-input v-model="form.description" :placeholder="t('scaffold.descriptionPlaceholder')" />

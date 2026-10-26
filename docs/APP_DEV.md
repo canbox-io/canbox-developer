@@ -254,11 +254,12 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 ```json
 {
     "name": "cb-jsonbox",
-    "id": "com.gitee.lizl6.cb-jsonbox",
+    "displayName": "JsonBox",
+    "id": "com.github.rexlevin.cb-jsonbox",
     "version": "0.0.3",
     "main": "main.js",
     "description": "JsonBox - 跨平台的 JSON 格式化工具",
-    "author": "lizl6",
+    "author": "rexlevin",
     "license": "Apache-2.0",
     "logo": "logo.png",
     "keywords": ["json", "formatter", "development", "utility"],
@@ -271,6 +272,7 @@ package.json 是标准 npm 包描述文件。除了 `name`、`main`、`version` 
 | 字段            | 必需 | 类型     | 说明                                                                                        |
 | --------------- | ---- | -------- | ------------------------------------------------------------------------------------------- |
 | `name`        | 是   | string   | npm 标准字段，包名。调试时作 appId                                                          |
+| `displayName` | 否   | string   | 界面展示名。未配置时回退 `name`；`name` 仍作包名与机器标识                              |
 | `id`          | 否   | string   | Canbox 约定，APP 全局唯一标识（反向域名格式）。无则用 `name`。用于 zip 文件名和 repo 搜索 |
 | `main`        | 是   | string   | 主进程入口 JS 文件                                                                          |
 | `version`     | 是   | string   | 版本号                                                                                      |

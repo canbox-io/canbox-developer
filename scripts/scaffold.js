@@ -1186,6 +1186,8 @@ function readmeTemplate(templateId, settingsMode) {
         `# ${TOKEN_NAME}`,
         '',
         '基于 canbox 平台的桌面 APP，由 canbox-developer 生成。',
+        '',
+        `APP 在 canbox 各界面展示的名称取自 \`package.json\` 的 \`displayName\`（可改为更友好的名称，缺省回退 \`name\`）。`,
         ''
     ];
     if (vue) {
@@ -1258,11 +1260,13 @@ function readmeTemplate(templateId, settingsMode) {
 
 /** package.json（按技术栈与设置打开方式产出对应依赖与脚本） */
 function buildPackageJson(options) {
-    const { name, description, author, template, injectionPath, electronRange, settingsMode } = options;
+    const { name, displayName, description, author, template, injectionPath, electronRange, settingsMode } = options;
     const startScript = `electron -r "${injectionPath}" . --app-id=${name} --no-sandbox`;
 
     const pkg = {
         name,
+        // 展示名：界面优先读取 displayName，缺省回退 name；name 仅作包名与机器标识
+        displayName: displayName || name,
         version: '0.0.1',
         description: description || '',
         main: 'main.js',
@@ -1745,7 +1749,7 @@ ${modeBlock}`;
 
 /**
  * 生成骨架文件集
- * @param {object} options - { name, description, author, template, settingsMode, injectionPath, electronRange }
+ * @param {object} options - { name, displayName, description, author, template, settingsMode, injectionPath, electronRange }
  * @returns {{ files: Object<string, string> }}
  */
 function buildScaffold(options) {

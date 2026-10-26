@@ -195,11 +195,13 @@ function copyDefaultAppIcons(targetDir) {
  * 从模板创建新 APP 项目骨架
  * 所选 targetDir 即工程目录，工程文件直接写入该目录（目录需为空）
  * @param {string} targetDir - 工程目录
- * @param {object} options - { name, description, author, template, settingsMode, electronRange, category }
+ * @param {object} options - { name, displayName, description, author, template, settingsMode, electronRange, category }
  * @returns {Promise<{success: boolean, sourceDir?: string, appId?: string, code?: string, error?: string}>}
  */
 ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
     const { name, description, author, template, settingsMode } = options;
+    // 展示名非必填；缺省时由 scaffold 回退为 name
+    const displayName = typeof options.displayName === 'string' ? options.displayName.trim() : '';
 
     if (!name) {
         return { success: false, code: 'NAME_REQUIRED', error: 'APP name is required' };
@@ -222,6 +224,7 @@ ipcMain.handle('developer.scaffold.create', async (_e, targetDir, options) => {
         const electronRange = options.electronRange || process.versions.electron;
         const { files } = buildScaffold({
             name,
+            displayName,
             description,
             author,
             template,
