@@ -278,38 +278,125 @@ function getSettingsStore() {
 }
 
 /**
- * 从 package.json 实时读取 APP 元数据
- * store 只存结构性数据（appId/sourceDir/addedAt），元数据每次实时读
+ * 工程目录规范化：作为开发项目的唯一主键
+ * 存在的目录优先取 realpath（消除软链接差异），目录已不存在时退回 resolve 结果，
+ * 这样目录被删除后重新出现仍能命中同一条记录。
  * @param {string} sourceDir - APP 源码目录
- * @returns {object|null} 合并后的 app 信息，源码目录无效返回 null
+ * @returns {string} 规范化后的绝对路径
+ */
+function normalizeSourceDir(sourceDir) {
+    if (!sourceDir) return '';
+    const resolved = path.resolve(sourceDir);
+    try {
+        return fs.realpathSync.native(resolved);
+    } catch (e) {
+        // 目录已不存在时 realpath 会失败，保留 resolve 结果
+        return resolved;
+    }
+}
+
+// 项目元数据读取状态
+const APP_STATUS_OK = 'ok';
+const APP_STATUS_MISSING_DIR = 'missing-dir';
+const APP_STATUS_MISSING_PACKAGE = 'missing-package';
+const APP_STATUS_INVALID_JSON = 'invalid-json';
+
+// 上次成功读取的元数据（内存态）：目录被删除或 package.json 短暂不可读时继续展示
+const lastGoodInfo = new Map();
+
+/**
+ * 从 package.json 实时读取 APP 元数据，并区分失败原因
+ * store 只存结构性数据（sourceDir/addedAt），元数据每次实时读
+ * @param {string} sourceDir - APP 源码目录
+ * @returns {{status: string, info: object|null}} 状态与元数据；失败时 info 为 null
  */
 function readAppInfo(sourceDir) {
+    let stat = null;
+    try {
+        stat = fs.statSync(sourceDir);
+    } catch (e) {
+        stat = null;
+    }
+    if (!stat || !stat.isDirectory()) {
+        return { status: APP_STATUS_MISSING_DIR, info: null };
+    }
+
     const pkgPath = path.join(sourceDir, 'package.json');
-    if (!fs.existsSync(pkgPath)) return null;
+    if (!fs.existsSync(pkgPath)) {
+        return { status: APP_STATUS_MISSING_PACKAGE, info: null };
+    }
 
     let pkg;
     try {
         pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     } catch (e) {
-        return null;
+        return { status: APP_STATUS_INVALID_JSON, info: null };
     }
 
     return {
-        appId: pkg.name,
-        name: pkg.displayName || pkg.name || pkg.name,
-        version: pkg.version || '0.0.0',
-        description: pkg.description || '',
-        author: pkg.author || '',
-        sourceDir,
-        logo: detectLogo(sourceDir, pkg),
-        keywords: pkg.keywords || [],
-        platforms: pkg.platforms || [],
+        status: APP_STATUS_OK,
+        info: {
+            appId: pkg.name,
+            name: pkg.displayName || pkg.name || '',
+            version: pkg.version || '0.0.0',
+            description: pkg.description || '',
+            author: pkg.author || '',
+            sourceDir,
+            logo: detectLogo(sourceDir, pkg),
+            keywords: pkg.keywords || [],
+            platforms: pkg.platforms || [],
+        }
     };
 }
 
 /**
+ * 读取开发项目记录（结构性数据），按 sourceDir 归一化并去重
+ * 兼容旧记录：早期版本以 appId 为主键并快照 appId 字段，这里统一迁移为 { sourceDir, addedAt }
+ * @returns {Array<{sourceDir: string, addedAt: number}>}
+ */
+function loadRecords() {
+    const devApps = getDevAppsStore();
+    const raw = devApps.get('list') || [];
+    const seen = new Set();
+    const records = [];
+    let changed = false;
+
+    for (const item of raw) {
+        if (!item || !item.sourceDir) {
+            changed = true;
+            continue;
+        }
+        const sourceDir = normalizeSourceDir(item.sourceDir);
+        if (seen.has(sourceDir)) {
+            changed = true;
+            continue;
+        }
+        seen.add(sourceDir);
+        if (sourceDir !== item.sourceDir || item.appId !== undefined) changed = true;
+        records.push({ sourceDir, addedAt: item.addedAt || Date.now() });
+    }
+
+    if (changed) devApps.set('list', records);
+    return records;
+}
+
+/**
+ * 把最新项目列表同步到元数据监听器
+ * 变化后通知渲染进程重新拉取列表（数据仍由 list 实时读取，监听只负责失效通知）
+ * @param {Array<{sourceDir: string}>} records - 开发项目记录
+ */
+function syncAppsWatcher(records) {
+    const watcher = require(path.join(__dirname, 'scripts', 'apps-watcher'));
+    watcher.sync(records, () => {
+        BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) win.webContents.send('developer:appsChanged');
+        });
+    });
+}
+
+/**
  * 选择 package.json 文件，加入开发项目列表
- * store 只存 {appId, sourceDir, addedAt}，元数据 list 时实时读
+ * store 只存 {sourceDir, addedAt}，元数据 list 时实时读
  */
 ipcMain.handle('developer.apps.add', async (_e, presetSourceDir) => {
     // presetSourceDir: 可选，由前端"选版本后重试"流程传入，跳过文件选择对话框
@@ -327,9 +414,13 @@ ipcMain.handle('developer.apps.add', async (_e, presetSourceDir) => {
     }
 
     try {
-        const info = readAppInfo(sourceDir);
+        const normalized = normalizeSourceDir(sourceDir);
+        const { status, info } = readAppInfo(normalized);
         if (!info) {
-            return { success: false, error: '无法读取 package.json' };
+            return {
+                success: false,
+                error: status === APP_STATUS_INVALID_JSON ? 'package.json 解析失败' : '无法读取 package.json'
+            };
         }
         if (!info.appId) {
             return { success: false, error: 'package.json 必须有 name 字段' };
@@ -337,36 +428,35 @@ ipcMain.handle('developer.apps.add', async (_e, presetSourceDir) => {
 
         // 检查 .canbox-app 是否存在且 electron.range 有效
         // 不满足时返回结构化错误，让前端弹窗让用户选版本并写入
-        const meta = readCanboxMeta(sourceDir);
+        const meta = readCanboxMeta(normalized);
         if (!meta || !meta.electron || !meta.electron.range) {
             return {
                 success: false,
                 code: 'ELECTRON_RANGE_REQUIRED',
-                sourceDir,
+                sourceDir: normalized,
                 appId: info.appId,
                 appInfo: info
             };
         }
 
-        const devApps = getDevAppsStore();
-        let list = devApps.get('list') || [];
+        const records = loadRecords();
 
-        // 避免重复添加
-        if (list.some(item => item.appId === info.appId)) {
+        // 以工程目录为唯一主键去重：改 name 不会产生重复记录
+        if (records.some(item => item.sourceDir === normalized)) {
             return { success: false, code: 'APP_ALREADY_ADDED', error: '该 APP 已在开发列表中' };
         }
 
         // 只存结构性数据
         const record = {
-            appId: info.appId,
-            sourceDir,
+            sourceDir: normalized,
             addedAt: Date.now()
         };
-        list.push(record);
-        devApps.set('list', list);
+        records.push(record);
+        getDevAppsStore().set('list', records);
+        syncAppsWatcher(records);
 
         // 返回时合并元数据
-        return { success: true, app: { ...record, ...info } };
+        return { success: true, app: { ...record, status: APP_STATUS_OK, ...info } };
     } catch (e) {
         return { success: false, error: e.message };
     }
@@ -446,35 +536,116 @@ function detectLogo(sourceDir, pkg) {
 
 /**
  * 列出所有开发项目
- * 从 store 读结构性数据（appId/sourceDir/addedAt），实时从 package.json 读元数据
+ * 从 store 读结构性数据（sourceDir/addedAt），实时从 package.json 读元数据
+ * 目录丢失 / package.json 缺失或不可解析时返回 status，并优先展示上次成功读取的元数据
  */
 ipcMain.handle('developer.apps.list', async () => {
-    const devApps = getDevAppsStore();
-    const list = devApps.get('list') || [];
+    const records = loadRecords();
 
-    const result = [];
-    for (const record of list) {
-        const info = readAppInfo(record.sourceDir);
+    const result = records.map((record) => {
+        const { status, info } = readAppInfo(record.sourceDir);
         if (info) {
-            result.push({ ...record, ...info });
-        } else {
-            // 源码目录无效，保留结构性数据（前端可提示）
-            result.push({ ...record, name: record.appId, version: '', description: '', author: '', logo: '', keywords: [], platforms: [] });
+            lastGoodInfo.set(record.sourceDir, info);
+            return { ...record, status: APP_STATUS_OK, ...info };
         }
-    }
 
+        const cached = lastGoodInfo.get(record.sourceDir) || {};
+        return {
+            ...record,
+            status,
+            appId: cached.appId || '',
+            name: cached.name || path.basename(record.sourceDir),
+            version: cached.version || '',
+            description: cached.description || '',
+            author: cached.author || '',
+            logo: cached.logo || '',
+            keywords: cached.keywords || [],
+            platforms: cached.platforms || []
+        };
+    });
+
+    syncAppsWatcher(records);
     return result;
 });
 
 /**
  * 从开发列表中移除（不删源码，只删记录）
+ * @param {string} sourceDir - 工程目录（唯一主键）
  */
-ipcMain.handle('developer.apps.remove', async (_e, appId) => {
-    const devApps = getDevAppsStore();
-    let list = devApps.get('list') || [];
-    list = list.filter(item => item.appId !== appId);
-    devApps.set('list', list);
+ipcMain.handle('developer.apps.remove', async (_e, sourceDir) => {
+    const target = normalizeSourceDir(sourceDir);
+    const records = loadRecords().filter(item => item.sourceDir !== target);
+    getDevAppsStore().set('list', records);
+    lastGoodInfo.delete(target);
+    syncAppsWatcher(records);
     return { success: true };
+});
+
+/**
+ * 重新定位：把已有记录指向新选择的 package.json 所在目录
+ * 用于工程被移动、或整目录删除后重建的场景，保留原 addedAt
+ * @param {string} oldSourceDir - 原工程目录
+ * @param {string} [presetNewDir] - 由前端"选版本后重试"流程传入，跳过文件选择对话框
+ */
+ipcMain.handle('developer.apps.relocate', async (_e, oldSourceDir, presetNewDir) => {
+    let newDir = presetNewDir;
+    if (!newDir) {
+        const result = await dialog.showOpenDialog({
+            title: '重新选择该工程的 package.json',
+            defaultPath: normalizeSourceDir(oldSourceDir),
+            filters: [{ name: 'package.json', extensions: ['json'] }],
+            properties: ['openFile']
+        });
+        if (result.canceled || result.filePaths.length === 0) {
+            return { success: false, canceled: true };
+        }
+        newDir = path.dirname(result.filePaths[0]);
+    }
+
+    try {
+        const oldDir = normalizeSourceDir(oldSourceDir);
+        const normalized = normalizeSourceDir(newDir);
+        const { status, info } = readAppInfo(normalized);
+        if (!info) {
+            return {
+                success: false,
+                error: status === APP_STATUS_INVALID_JSON ? 'package.json 解析失败' : '无法读取 package.json'
+            };
+        }
+        if (!info.appId) {
+            return { success: false, error: 'package.json 必须有 name 字段' };
+        }
+
+        // 缺失 .canbox-app 时复用前端"选版本并写入"流程
+        const meta = readCanboxMeta(normalized);
+        if (!meta || !meta.electron || !meta.electron.range) {
+            return {
+                success: false,
+                code: 'ELECTRON_RANGE_REQUIRED',
+                sourceDir: normalized,
+                appId: info.appId,
+                appInfo: info
+            };
+        }
+
+        const records = loadRecords();
+        const index = records.findIndex(item => item.sourceDir === oldDir);
+        if (index < 0) {
+            return { success: false, error: '该工程已不在开发列表中' };
+        }
+        if (normalized !== oldDir && records.some(item => item.sourceDir === normalized)) {
+            return { success: false, code: 'APP_ALREADY_ADDED', error: '该 APP 已在开发列表中' };
+        }
+
+        records[index] = { sourceDir: normalized, addedAt: records[index].addedAt };
+        getDevAppsStore().set('list', records);
+        lastGoodInfo.delete(oldDir);
+        syncAppsWatcher(records);
+
+        return { success: true, app: { ...records[index], status: APP_STATUS_OK, ...info } };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
 });
 
 /**

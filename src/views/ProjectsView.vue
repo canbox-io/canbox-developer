@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessageBox, ElSelect, ElOption } from 'element-plus';
 import { h } from 'vue';
@@ -39,67 +39,114 @@ async function addApp(presetSourceDir) {
     }
     // 缺失 .canbox-app：弹窗让用户选 electron 版本，写入后重试添加
     if (result.code === 'ELECTRON_RANGE_REQUIRED') {
-        const { sourceDir, appInfo } = result;
-        // 拉取白名单版本
-        const allowed = await window.api.developer.electronListAllowed();
-        if (!allowed.success || allowed.versions.length === 0) {
-            notification.error(t('projects.noAllowedElectron'));
-            return;
-        }
-        // 弹窗：下拉选版本（用 h 函数渲染 el-select）
-        const selectedVersion = ref(allowed.versions[0]);
-        const selectedCategory = ref('other');
-        const categoryOptions = [
-            { value: 'other', label: t('scaffold.categoryOther') },
-            { value: 'development', label: t('scaffold.categoryDevelopment') },
-            { value: 'utility', label: t('scaffold.categoryUtility') },
-            { value: 'office', label: t('scaffold.categoryOffice') },
-            { value: 'network', label: t('scaffold.categoryNetwork') },
-            { value: 'audio', label: t('scaffold.categoryAudio') },
-            { value: 'video', label: t('scaffold.categoryVideo') },
-            { value: 'game', label: t('scaffold.categoryGame') },
-            { value: 'graphics', label: t('scaffold.categoryGraphics') },
-            { value: 'education', label: t('scaffold.categoryEducation') }
-        ];
-        try {
-            await ElMessageBox({
-                title: t('projects.electronRangeTitle'),
-                message: () => [
-                    h('p', { style: 'margin: 0 0 12px 0; color: #606266; line-height: 1.6;' },
-                        t('projects.electronRangePrompt', { name: appInfo.name })),
-                    h(ElSelect, {
-                        modelValue: selectedVersion.value,
-                        'onUpdate:modelValue': (v) => { selectedVersion.value = v; },
-                        style: 'width: 100%; margin-bottom: 12px;'
-                    }, () => allowed.versions.map(v => h(ElOption, { label: v, value: v }))),
-                    h('p', { style: 'margin: 0 0 6px 0; color: #606266; font-size: 13px;' },
-                        t('projects.categoryLabel')),
-                    h(ElSelect, {
-                        modelValue: selectedCategory.value,
-                        'onUpdate:modelValue': (v) => { selectedCategory.value = v; },
-                        style: 'width: 100%;'
-                    }, () => categoryOptions.map(o => h(ElOption, { label: o.label, value: o.value })))
-                ],
-                confirmButtonText: t('projects.confirmWrite'),
-                cancelButtonText: t('projects.cancel'),
-                showCancelButton: true,
-                closeOnClickModal: false
-            });
-            if (!selectedVersion.value) return;
-            const writeResult = await window.api.developer.writeCanboxMeta(sourceDir, selectedVersion.value, 'native', selectedCategory.value);
-            if (!writeResult.success) {
-                notification.error(writeResult.error || t('projects.writeMetaFailed'));
-                return;
-            }
-            notification.success(t('projects.metaWritten'));
+        if (await promptWriteCanboxMeta(result.sourceDir, result.appInfo)) {
             // 用已选的 sourceDir 重新调用 addApp，跳过文件选择
-            await addApp(sourceDir);
-        } catch (e) {
-            // 用户取消
+            await addApp(result.sourceDir);
         }
         return;
     }
     notification.error(result.error || t('projects.addFailed'));
+}
+
+/**
+ * 弹出 Electron 版本选择对话框并写入 .canbox-app
+ * @param {string} sourceDir - 工程目录
+ * @param {object} appInfo - 已读到的 APP 元数据（用于提示文案）
+ * @returns {Promise<boolean>} 是否写入成功（用户取消返回 false）
+ */
+async function promptWriteCanboxMeta(sourceDir, appInfo) {
+    // 拉取白名单版本
+    const allowed = await window.api.developer.electronListAllowed();
+    if (!allowed.success || allowed.versions.length === 0) {
+        notification.error(t('projects.noAllowedElectron'));
+        return false;
+    }
+    // 弹窗：下拉选版本（用 h 函数渲染 el-select）
+    const selectedVersion = ref(allowed.versions[0]);
+    const selectedCategory = ref('other');
+    const categoryOptions = [
+        { value: 'other', label: t('scaffold.categoryOther') },
+        { value: 'development', label: t('scaffold.categoryDevelopment') },
+        { value: 'utility', label: t('scaffold.categoryUtility') },
+        { value: 'office', label: t('scaffold.categoryOffice') },
+        { value: 'network', label: t('scaffold.categoryNetwork') },
+        { value: 'audio', label: t('scaffold.categoryAudio') },
+        { value: 'video', label: t('scaffold.categoryVideo') },
+        { value: 'game', label: t('scaffold.categoryGame') },
+        { value: 'graphics', label: t('scaffold.categoryGraphics') },
+        { value: 'education', label: t('scaffold.categoryEducation') }
+    ];
+    try {
+        await ElMessageBox({
+            title: t('projects.electronRangeTitle'),
+            message: () => [
+                h('p', { style: 'margin: 0 0 12px 0; color: #606266; line-height: 1.6;' },
+                    t('projects.electronRangePrompt', { name: appInfo.name })),
+                h(ElSelect, {
+                    modelValue: selectedVersion.value,
+                    'onUpdate:modelValue': (v) => { selectedVersion.value = v; },
+                    style: 'width: 100%; margin-bottom: 12px;'
+                }, () => allowed.versions.map(v => h(ElOption, { label: v, value: v }))),
+                h('p', { style: 'margin: 0 0 6px 0; color: #606266; font-size: 13px;' },
+                    t('projects.categoryLabel')),
+                h(ElSelect, {
+                    modelValue: selectedCategory.value,
+                    'onUpdate:modelValue': (v) => { selectedCategory.value = v; },
+                    style: 'width: 100%;'
+                }, () => categoryOptions.map(o => h(ElOption, { label: o.label, value: o.value })))
+            ],
+            confirmButtonText: t('projects.confirmWrite'),
+            cancelButtonText: t('projects.cancel'),
+            showCancelButton: true,
+            closeOnClickModal: false
+        });
+        if (!selectedVersion.value) return false;
+        const writeResult = await window.api.developer.writeCanboxMeta(sourceDir, selectedVersion.value, 'native', selectedCategory.value);
+        if (!writeResult.success) {
+            notification.error(writeResult.error || t('projects.writeMetaFailed'));
+            return false;
+        }
+        notification.success(t('projects.metaWritten'));
+        return true;
+    } catch (e) {
+        // 用户取消
+        return false;
+    }
+}
+
+/**
+ * 重新定位：工程被移动、或整目录删除后重建时，把已有记录指向新目录
+ * @param {object} app - 现有项目
+ * @param {string} [presetDir] - 选版本后重试时传入，跳过文件选择
+ */
+async function relocateApp(app, presetDir) {
+    if (typeof presetDir !== 'string') presetDir = undefined;
+    const result = await window.api.developer.relocateApp(app.sourceDir, presetDir);
+    if (result.canceled) return;
+    if (result.success) {
+        notification.success(t('projects.relocated'));
+        await loadProjects();
+        return;
+    }
+    if (result.code === 'ELECTRON_RANGE_REQUIRED') {
+        if (await promptWriteCanboxMeta(result.sourceDir, result.appInfo)) {
+            await relocateApp(app, result.sourceDir);
+        }
+        return;
+    }
+    notification.error(result.error || t('projects.relocateFailed'));
+}
+
+/**
+ * 卡片状态文案，ok 状态不显示徽标
+ * @param {string} status - 主进程返回的读取状态
+ * @returns {string} 国际化文案
+ */
+function statusText(status) {
+    if (status === 'missing-dir') return t('projects.statusMissingDir');
+    if (status === 'missing-package') return t('projects.statusMissingPackage');
+    if (status === 'invalid-json') return t('projects.statusInvalidJson');
+    return '';
 }
 
 async function launchApp(app) {
@@ -112,7 +159,7 @@ async function launchApp(app) {
 }
 
 async function publishApp(app) {
-    packaging.value[app.appId] = true;
+    packaging.value[app.sourceDir] = true;
     try {
         const result = await window.api.developer.publishApp(app.sourceDir);
         if (result.canceled) return;
@@ -140,7 +187,7 @@ async function publishApp(app) {
             notification.error(result.error || t('projects.publishFailed'));
         }
     } finally {
-        packaging.value[app.appId] = false;
+        packaging.value[app.sourceDir] = false;
     }
 }
 
@@ -161,7 +208,7 @@ async function clearData(app) {
 async function removeApp(app) {
     try {
         await ElMessageBox.confirm(t('projects.confirmRemoveApp', { name: app.name }), t('projects.confirmTitle'), { type: 'warning' });
-        const result = await window.api.developer.removeApp(app.appId);
+        const result = await window.api.developer.removeApp(app.sourceDir);
         if (result.success) {
             notification.success(t('projects.removed'));
             await loadProjects();
@@ -186,11 +233,29 @@ function openApiDocs() {
     window.api.developer.openUrl('https://canbox-io.github.io/canbox-pages/docs.html');
 }
 
+// 主进程元数据监听推送的取消订阅函数
+let unsubscribeAppsChanged = null;
+
+// 窗口重新获得焦点 / 从隐藏变为可见时兜底刷新：
+// fs.watch 在网络盘、无权限目录等场景可能收不到事件，需要一条不依赖监听的兜底路径
+function refreshIfVisible() {
+    if (!document.hidden) loadProjects();
+}
+
 onMounted(() => {
     window.api.misc.hello().then(() => {
         console.log('[canbox-developer] canbox-core 已加载');
     });
     loadProjects();
+    unsubscribeAppsChanged = window.api.developer.onAppsChanged(() => loadProjects());
+    window.addEventListener('focus', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+});
+
+onUnmounted(() => {
+    if (typeof unsubscribeAppsChanged === 'function') unsubscribeAppsChanged();
+    window.removeEventListener('focus', refreshIfVisible);
+    document.removeEventListener('visibilitychange', refreshIfVisible);
 });
 </script>
 
@@ -215,6 +280,7 @@ onMounted(() => {
                 >{{ t('projects.apiDocs') }}</el-link>
                 <el-button @click="router.push('/scaffold')">{{ t('projects.newProject') }}</el-button>
                 <el-button type="primary" @click="addApp()">{{ t('projects.addApp') }}</el-button>
+                <el-button circle @click="loadProjects" :title="t('projects.refresh')">⟳</el-button>
                 <el-button circle @click="router.push('/settings')" :title="t('projects.settingsWithShortcut')">
                     <span style="font-size: 18px;">⚙</span>
                 </el-button>
@@ -225,7 +291,12 @@ onMounted(() => {
                 <el-empty :description="t('projects.empty')" />
             </div>
             <div v-else class="app-list">
-                <div v-for="app in projects" :key="app.appId" class="app-card">
+                <div
+                    v-for="app in projects"
+                    :key="app.sourceDir"
+                    class="app-card"
+                    :class="{ 'app-card--missing': app.status !== 'ok' }"
+                >
                     <!-- Logo -->
                     <div class="logo-section">
                         <img v-if="app.logo" :src="app.logo" :alt="app.name" />
@@ -237,6 +308,10 @@ onMounted(() => {
                         <div class="name-row">
                             <span class="app-name">{{ app.name }}</span>
                             <span class="app-version">{{ app.version }}</span>
+                            <!-- 工程目录丢失 / package.json 缺失或不可解析 -->
+                            <el-tag v-if="app.status !== 'ok'" class="status-badge" type="warning" size="small" effect="light">
+                                {{ statusText(app.status) }}
+                            </el-tag>
                             <!-- 平台图标靠右，无 platforms 则默认全平台 -->
                             <span class="platforms">
                                 <el-tooltip v-for="p in (app.platforms && app.platforms.length > 0 ? app.platforms : ['windows', 'darwin', 'linux'])" :key="p" :content="PLATFORM_NAMES[p] || p" placement="top">
@@ -255,16 +330,19 @@ onMounted(() => {
                         <!-- 底部操作按钮 -->
                         <div class="app-actions">
                             <el-tooltip :content="t('projects.run')" placement="top">
-                                <button class="icon-btn run-btn" @click="launchApp(app)">▶️</button>
+                                <button class="icon-btn run-btn" :disabled="app.status !== 'ok'" @click="launchApp(app)">▶️</button>
                             </el-tooltip>
                             <el-tooltip :content="t('projects.publish')" placement="top">
-                                <button class="icon-btn pack-btn" :disabled="packaging[app.appId]" @click="publishApp(app)">📦</button>
+                                <button class="icon-btn pack-btn" :disabled="app.status !== 'ok' || packaging[app.sourceDir]" @click="publishApp(app)">📦</button>
                             </el-tooltip>
                             <el-tooltip :content="t('projects.openDataDir')" placement="top">
-                                <button class="icon-btn open-data-dir-btn" @click="openDataDir(app)">📂</button>
+                                <button class="icon-btn open-data-dir-btn" :disabled="app.status !== 'ok'" @click="openDataDir(app)">📂</button>
                             </el-tooltip>
                             <el-tooltip :content="t('projects.clearData')" placement="top">
-                                <button class="icon-btn clear-btn" @click="clearData(app)">🧹</button>
+                                <button class="icon-btn clear-btn" :disabled="app.status !== 'ok'" @click="clearData(app)">🧹</button>
+                            </el-tooltip>
+                            <el-tooltip v-if="app.status !== 'ok'" :content="t('projects.relocate')" placement="top">
+                                <button class="icon-btn relocate-btn" @click="relocateApp(app)">📍</button>
                             </el-tooltip>
                             <el-tooltip :content="t('projects.remove')" placement="top">
                                 <button class="icon-btn delete-btn" @click="removeApp(app)">🗑️</button>
@@ -335,6 +413,15 @@ onMounted(() => {
 }
 .app-card:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+/* 工程目录丢失 / package.json 不可读：整体降饱和并加警示描边（不改变布局） */
+.app-card--missing {
+    opacity: 0.72;
+    box-shadow: inset 0 0 0 1px #e6a23c;
+}
+.status-badge {
+    flex-shrink: 0;
+    align-self: center;
 }
 
 /* Logo */
@@ -468,5 +555,6 @@ onMounted(() => {
 .pack-btn:hover { background: #e3f2fd; }
 .open-data-dir-btn:hover { background: #e0f2f1; }
 .clear-btn:hover { background: #fff3e0; }
+.relocate-btn:hover { background: #fff8e1; }
 .delete-btn:hover { background: #ffebee; }
 </style>

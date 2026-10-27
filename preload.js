@@ -53,8 +53,20 @@ const api = {
         // 列出所有开发项目
         listApps: () => ipcRenderer.invoke('developer.apps.list'),
 
-        // 从开发列表移除
-        removeApp: (appId) => ipcRenderer.invoke('developer.apps.remove', appId),
+        // 从开发列表移除（按工程目录，不删源码）
+        removeApp: (sourceDir) => ipcRenderer.invoke('developer.apps.remove', sourceDir),
+
+        // 重新定位：把已有记录指向新选择的 package.json 所在目录
+        relocateApp: (oldSourceDir, presetNewDir) =>
+            ipcRenderer.invoke('developer.apps.relocate', oldSourceDir, presetNewDir),
+
+        // 元数据被外部修改/目录被删除后，主进程通知重新拉取列表
+        // 返回取消订阅函数，避免视图重建后重复监听
+        onAppsChanged: (callback) => {
+            const handler = () => callback();
+            ipcRenderer.on('developer:appsChanged', handler);
+            return () => ipcRenderer.removeListener('developer:appsChanged', handler);
+        },
 
         // 启动源码目录中的 APP 进行调试
         launchApp: (sourceDir) => ipcRenderer.invoke('developer.apps.launch', sourceDir),
