@@ -4,6 +4,28 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.2.0] - 2026-10-27
+
+### feat | 新功能 / Features
+
+新增 displayName 应用展示名：界面优先展示，未配置时回退 name，骨架生成与开发文档同步支持
+新增开发项目元数据监听：package.json、.canbox-app、logo 变更以及工程目录被删除都会实时反映到项目列表
+新增工程缺失态展示：区分目录不存在、package.json 缺失、package.json 无法解析，并提供「重新定位」入口
+新增手动刷新按钮，并在窗口聚焦/可见时自动刷新，作为文件监听不可用（如网络盘）时的兜底
+项目记录改为以工程目录为主键，修复修改 name 后无法移除、同一工程被重复添加的问题
+
+Add a displayName field for app display names: preferred by the UI and falling back to name; scaffold and dev docs updated
+Watch dev project metadata so changes to package.json, .canbox-app and logo, plus directory deletion, are reflected in the project list immediately
+Show missing states for deleted directories and missing or unparsable package.json, with a "relocate" action
+Add a manual refresh button and auto-refresh on window focus/visibility as a fallback when file watching is unavailable (e.g. network drives)
+Key project records by source directory, fixing removal failing and duplicate adds after renaming name
+
+### build | 构建 / Build
+
+版本号更新至 0.2.0
+
+Bump version to 0.2.0
+
 ## [0.1.9] - 2026-10-25
 
 ### feat | 新功能 / Features
