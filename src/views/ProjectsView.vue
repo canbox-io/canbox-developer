@@ -398,8 +398,8 @@ onUnmounted(() => {
 /* 卡片布局：logo 左侧 + 信息右侧 */
 .app-list {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px;
 }
 
 .app-card {
@@ -520,6 +520,7 @@ onUnmounted(() => {
 /* 操作按钮 */
 .app-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     margin-top: 12px;
 }
