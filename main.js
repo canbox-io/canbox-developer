@@ -43,6 +43,9 @@ const logger = {
 
 let mainWindow = null;
 
+// 活跃的流水线构建任务：taskId → { stop, startTime, logs[], currentStep, currentStepName, appId, sourceDir }
+const activeTasks = new Map();
+
 // ====== Developer 专用 IPC Handlers ======
 
 /**
@@ -133,41 +136,237 @@ ipcMain.handle('developer.apps.launch', async (_e, sourceDir) => {
 });
 
 /**
- * 发布 APP：选择 electron-builder 构建产物目录（resources/），按 canbox 标准结构压 zip
- * zip 结构：app.asar + app.asar.unpacked/(可选) + package.json + logo.png
- * @param {string} sourceDir - APP 源码目录（读取 package.json 和 logo）
- * @returns {Promise<{success: boolean, path?: string, error?: string}>}
+ * 发布 APP：弹出模式选择对话框
+ *   0 = 完整构建（自动 install → build → dist → zip）
+ *   1 = 仅打包（手动选择已有构建产物目录）
+ *   2 = 取消
+ * 完整构建返回 taskId，前端需订阅 developer:buildProgress 来跟踪进度
+ * 仅打包返回 zip 路径（与原行为一致）
+ * @param {string} sourceDir - APP 源码目录
  */
 ipcMain.handle('developer.apps.publish', async (_e, sourceDir) => {
     logger.info('[publish] developer.apps.publish: start, sourceDir=%s', sourceDir);
+
+    const { response } = await dialog.showMessageBox(BrowserWindow.getFocusedWindow(), {
+        type: 'question',
+        title: '打包分发',
+        message: '选择打包模式',
+        detail: '完整构建将自动执行 install → build → dist → zip，首次可能较慢。仅打包则手动选择已有构建产物目录。',
+        buttons: ['完整构建', '仅打包', '取消'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+    });
+
+    // 2 = 取消
+    if (response === 2) {
+        logger.info('[publish] canceled by user');
+        return { success: false, canceled: true };
+    }
+
+    // 0 = 完整构建
+    if (response === 0) {
+        // 先快速探测一下，提前发现"没 dist 脚本"的情况
+        const { detectPipelineConfig } = require(path.join(__dirname, 'scripts', 'canbox-publish.js'));
+        const config = detectPipelineConfig(sourceDir);
+        if (!config.success) {
+            // 降级为"仅打包"，提示原因
+            const fallback = await dialog.showMessageBox(BrowserWindow.getFocusedWindow(), {
+                type: 'warning',
+                title: '完整构建不可用',
+                message: `无法自动构建：${config.error}`,
+                detail: '将自动切换为「仅打包」模式，请手动选择构建产物目录。',
+                buttons: ['手动选择', '取消'],
+                defaultId: 0,
+                cancelId: 1,
+            });
+            if (fallback.response !== 0) return { success: false, canceled: true };
+            return runManualPack(sourceDir);
+        }
+        if (!config.distScript) {
+            const fallback = await dialog.showMessageBox(BrowserWindow.getFocusedWindow(), {
+                type: 'warning',
+                title: '完整构建不可用',
+                message: '该项目的 package.json 中没有 Electron 打包脚本（dist / package / make 等）',
+                detail: '将自动切换为「仅打包」模式，请先手动执行 npm run dist，然后选择构建产物目录。',
+                buttons: ['手动选择', '取消'],
+                defaultId: 0,
+                cancelId: 1,
+            });
+            if (fallback.response !== 0) return { success: false, canceled: true };
+            return runManualPack(sourceDir);
+        }
+        // 启动完整构建流水线
+        logger.info('[publish] starting full build pipeline for %s', sourceDir);
+        const task = startPipeline(sourceDir);
+        return { success: true, mode: 'fullbuild', taskId: task.taskId };
+    }
+
+    // 1 = 仅打包（手动选目录）
+    return runManualPack(sourceDir);
+});
+
+/**
+ * 仅打包模式：弹目录选择对话框 + packCanboxZip
+ * 从原 publish handler 抽出，供完整构建不可用时降级调用
+ */
+async function runManualPack(sourceDir) {
     // 弹出目录选择对话框，选构建产物目录（含 app.asar 的目录）
     const result = await dialog.showOpenDialog({
-        title: '打包分发：将已有的 app.asar 按标准结构压成 zip。请先完成 npm run dist 构建，再选择构建产物目录（含 app.asar，通常为 dist/xxx-unpacked/resources/）',
+        title: '打包分发：请选择包含 app.asar 的资源目录（通常为 dist/xxx-unpacked/resources/）',
         defaultPath: sourceDir,
         properties: ['openDirectory']
     });
     if (result.canceled || result.filePaths.length === 0) {
-        logger.info('[publish] developer.apps.publish: dialog canceled');
+        logger.info('[publish] manual pack: dialog canceled');
         return { success: false, canceled: true };
     }
 
     const resourcesDir = result.filePaths[0];
-    logger.info('[publish] developer.apps.publish: resourcesDir=%s', resourcesDir);
+    logger.info('[publish] manual pack: resourcesDir=%s', resourcesDir);
 
     // 调用共享模块打包（与 CLI canbox-publish.js 共用同一逻辑）
     try {
         const { packCanboxZip } = require(path.join(__dirname, 'scripts', 'canbox-publish.js'));
         const r = packCanboxZip(sourceDir, resourcesDir);
         if (r.success) {
-            logger.info('[publish] developer.apps.publish: success, path=%s', r.path);
+            logger.info('[publish] manual pack: success, path=%s', r.path);
         } else {
-            logger.error('[publish] developer.apps.publish: failed, error=%s', r.error);
+            logger.error('[publish] manual pack: failed, error=%s', r.error);
         }
         return r;
     } catch (e) {
-        logger.error('[publish] developer.apps.publish: exception: %s', e.stack || e.message);
+        logger.error('[publish] manual pack: exception: %s', e.stack || e.message);
         return { success: false, error: e.message };
     }
+}
+
+/**
+ * 启动完整构建流水线（runPipeline），并广播进度到渲染层
+ * @param {string} sourceDir - APP 源码目录
+ * @returns {{ taskId: string }}
+ */
+function startPipeline(sourceDir) {
+    const { runPipeline } = require(path.join(__dirname, 'scripts', 'canbox-publish.js'));
+    const pkgPath = path.join(sourceDir, 'package.json');
+    let appId = path.basename(sourceDir);
+    try {
+        appId = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).name || appId;
+    } catch (_) {}
+
+    const startTime = Date.now();
+    // 提前生成 taskId：必须在 runPipeline 调用前声明，否则 callbacks 里引用 taskId 会触发 TDZ
+    const taskId = `pipeline-${appId}-${Date.now()}`;
+    const taskMeta = {
+        startTime,
+        sourceDir,
+        appId,
+        logs: [],
+        currentStep: 0,
+        currentStepName: '',
+        status: 'running', // running | success | failed | stopped
+        zipPath: null,
+        error: null,
+    };
+
+    const send = (payload) => {
+        BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) win.webContents.send('developer:buildProgress', payload);
+        });
+    };
+
+    const { stop } = runPipeline(sourceDir, {
+        taskId,
+        callbacks: {
+            onStepStart: ({ step, name }) => {
+                taskMeta.currentStep = step;
+                taskMeta.currentStepName = name;
+                send({ taskId, type: 'step', data: { step, name } });
+            },
+            onStepEnd: ({ step, name, duration }) => {
+                send({ taskId, type: 'stepDone', data: { step, name, duration } });
+            },
+            onLog: ({ text, stream }) => {
+                taskMeta.logs.push({ text, stream, time: Date.now() });
+                // 限制内存中的日志条数（前端只存最近 2000 行，超出只广播不存内存）
+                if (taskMeta.logs.length > 2000) taskMeta.logs.shift();
+                send({ taskId, type: 'log', data: { text, stream } });
+            },
+            onDone: ({ success, zipPath, error, stopped, logs, duration }) => {
+                taskMeta.status = stopped ? 'stopped' : (success ? 'success' : 'failed');
+                taskMeta.zipPath = zipPath || null;
+                taskMeta.error = error || null;
+                const doneType = stopped ? 'stopped' : (success ? 'done' : 'failed');
+                send({
+                    taskId,
+                    type: doneType,
+                    data: {
+                        success,
+                        stopped,
+                        zipPath,
+                        error,
+                        duration,
+                        sourceDir,
+                        appId,
+                    },
+                });
+                // 清理任务记录（延迟 60 秒，让前端有足够时间拉取最终状态）
+                setTimeout(() => {
+                    activeTasks.delete(taskId);
+                    logger.info('[pipeline] task %s cleaned up', taskId);
+                }, 60000);
+            },
+        },
+    });
+
+    activeTasks.set(taskId, { stop, ...taskMeta });
+    logger.info('[pipeline] task started: %s (app=%s)', taskId, appId);
+    send({ taskId, type: 'started', data: { sourceDir, appId, startTime } });
+
+    return { taskId };
+}
+
+// ====== 流水线 IPC Handlers ======
+
+/**
+ * 停止正在执行的流水线任务
+ */
+ipcMain.handle('developer.pipeline.stop', async (_e, taskId) => {
+    const task = activeTasks.get(taskId);
+    if (!task) {
+        return { success: false, error: '任务不存在或已结束' };
+    }
+    if (task.status !== 'running') {
+        return { success: false, error: `任务状态为 ${task.status}，无法停止` };
+    }
+    logger.info('[pipeline] stopping task %s', taskId);
+    task.stop();
+    return { success: true };
+});
+
+/**
+ * 查询流水线任务当前状态（含已累积的日志）
+ */
+ipcMain.handle('developer.pipeline.status', async (_e, taskId) => {
+    const task = activeTasks.get(taskId);
+    if (!task) {
+        return { success: false, error: '任务不存在或已结束' };
+    }
+    return {
+        success: true,
+        status: {
+            taskId,
+            startTime: task.startTime,
+            sourceDir: task.sourceDir,
+            appId: task.appId,
+            currentStep: task.currentStep,
+            currentStepName: task.currentStepName,
+            status: task.status,
+            zipPath: task.zipPath,
+            error: task.error,
+            logs: task.logs,
+        },
+    };
 });
 
 /**

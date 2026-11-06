@@ -576,26 +576,219 @@ if (isDev) {
 
 ### 打包分发流程
 
-1. 开发者在终端用任意 Electron 打包工具（如 electron-builder、electron-forge 等）打包 → 得到 `resources/` 目录（`app.asar` + 可能的 `app.asar.unpacked/`）
-2. 在 canbox-developer 点「打包分发」 → 选择 `resources/` 目录
+canbox-developer 提供两种打包模式：**完整构建**（自动执行 install → build → dist → zip 一条龙）和 **仅打包**（手动选择已有构建产物目录）。
+
+点击「打包分发」按钮后会先弹出模式选择对话框。
+
+#### 完整构建模式（推荐）
+
+点击「完整构建」后，canbox-developer 自动执行以下步骤，无需开发者手动跑命令：
+
+1. **探测项目配置**
+   - 包管理器：按 lock 文件优先级（`pnpm-lock.yaml` → `yarn.lock` → `package-lock.json` → 命令探测）
+   - 前端构建脚本：`build` / `vite:build` / `web-build`（纯静态项目跳过）
+   - Electron 打包脚本：`dist` / `package` / `make` / `builder` / `electron-builder` / `asar` / `pack`
+   - node_modules 是否存在（决定是否需要 install）
+
+2. **安装依赖**（仅当 node_modules 不存在时）
+   - pnpm → `pnpm install --frozen-lockfile`
+   - yarn → `yarn install --frozen-lockfile`
+   - npm → `npm ci`
+
+3. **前端构建**（探测到 build 脚本时执行）
+   - `pnpm run build` / `yarn build` / `npm run build`
+
+4. **Electron 打包**（探测到 dist/package 等脚本时执行）
+   - 执行探测到的打包脚本，产出 `dist/*-unpacked/resources/app.asar`
+
+5. **自动定位产物目录**
+   - 通过 glob 匹配 `dist/*-unpacked/resources/app.asar`、`dist/**/resources/app.asar`、`out/**/resources/app.asar` 等多模式
+   - 兼容 electron-builder（所有 target）和 electron-forge 的产物布局
+
+6. **标准化 zip 打包**
+   - 与原「仅打包」模式共用同一份 `packCanboxZip` 逻辑
+
+**流水线的兜底与降级**：
+
+| 探测失败场景 | 处理方式 |
+|---|---|
+| 找不到 package.json | 弹警告，自动降级为「仅打包」让用户手动选目录 |
+| package.json 解析失败 | 同上 |
+| 没有任何 Electron 打包脚本 | 弹警告提示"请先手动执行 npm run dist"，自动降级为「仅打包」 |
+| dist 后找不到 app.asar | 弹警告，自动降级为「仅打包」让用户手动选目录 |
+
+任何探测失败都不会让流程彻底中断，而是友好降级为手动操作。
+
+#### 仅打包模式（手动选目录）
+
+与原有行为一致：
+
+1. 选择「仅打包」→ 弹出目录选择对话框
+2. 手动选择包含 `app.asar` 的资源目录（通常为 `dist/xxx-unpacked/resources/`）
 3. developer 自动从源码目录提取 `package.json` 和 `logo.png`
-4. 按 canbox 标准结构压 zip：
-   ```
-   {id}-{version}[-{platform}-{arch}].zip
-   ├── app.asar                  ← 从 resources/ 目录
-   ├── app.asar.unpacked/        ← 从 resources/ 目录（如有）
-   ├── package.json              ← 从源码目录
-   └── logo.png                  ← 从源码目录（自动探测）
-   ```
-5. 输出 zip 到源码目录同级
-6. 开发者把 zip 上传到 repo，或通过 canbox-manager 导入
+4. 按 canbox 标准结构压 zip
 
-**注意：**
+#### 两种模式共用的 zip 结构
 
-- `id` 取自 package.json 的 `id` 字段，无则用 `name`
-- 有 `app.asar.unpacked/`（原生模块）时，zip 文件名带平台标识（从 resources/ 父目录名推断）
-- 无 `app.asar.unpacked/` 时，zip 全平台通用，文件名不带平台
-- developer 只负责标准化压缩，不替 APP 打 asar
+```
+{id}-{version}[-{platform}-{arch}].zip
+├── app.asar                  ← 从 resources/ 目录
+├── app.asar.unpacked/        ← 从 resources/ 目录（如有）
+├── package.json              ← 从源码目录
+└── logo.png                  ← 从源码目录（自动探测）
+```
+
+#### 进度与日志
+
+完整构建模式下：
+
+- 卡片上的打包按钮变成 **spinner + 实时计时器**（秒级刷新，显示 MM:SS）
+- 点击 spinner 打开日志弹窗，可看到实时滚动的命令输出、步骤进度条、当前步骤名
+- 日志弹窗支持 **手动上滚暂停自动滚动**，滚回底部自动恢复
+- 弹窗底部提供 **停止** 按钮（SIGTERM → 3s 后 SIGKILL，Windows 用 taskkill /F /T）
+- 弹窗底部提供 **复制日志** 按钮，一键复制所有命令输出到剪贴板
+- 构建完成后可从弹窗一键打开 zip 所在目录
+- 关闭弹窗不影响执行，spinner 持续显示状态
+
+**零超时设计**：流水线不预设执行超时，由开发者自己决定等多久或停止。
+
+**子进程环境**：spawn 时注入 shell PATH（含 Homebrew、nvm、volta、snap 等常见位置）和 HOME 变量，确保 npm/pnpm 能正常读取 ~/.npmrc。
+
+**进度事件通道**（前端订阅用）：
+
+```js
+// preload.js 暴露
+window.api.developer.onBuildProgress((payload) => {
+    // payload.taskId    — 任务唯一 ID
+    // payload.type      — 'started' | 'step' | 'stepDone' | 'log' | 'done' | 'failed' | 'stopped'
+    // payload.data      — 各类型对应的数据
+});
+
+// 停止任务
+await window.api.developer.stopBuild(taskId);
+
+// 查询任务状态（含已累积的日志，弹窗重新打开时用）
+const result = await window.api.developer.getBuildStatus(taskId);
+```
+
+#### 后端实现结构
+
+```
+canbox-publish.js（共享模块）
+├── packCanboxZip()         — 原有 zip 打包逻辑（CLI 和 GUI 共用）
+├── detectPipelineConfig()  — 组合探测：包管理器 + scripts + node_modules
+├── findResourcesDir()      — glob 多模式匹配 app.asar 位置
+└── runPipeline()            — 完整流水线（install → build → dist → zip）
+    ├── 逐行 stdout/stderr 缓冲
+    ├── 回调式进度（onStepStart / onStepEnd / onLog / onDone）
+    └── stop() 方法（SIGTERM → SIGKILL → Windows taskkill）
+
+main.js（Electron 主进程）
+├── developer.apps.publish（改造后：弹模式选择 → 分发）
+├── runManualPack()          — 仅打包模式（原有逻辑抽出）
+├── startPipeline()          — 完整构建模式（调 runPipeline + IPC broadcast）
+├── developer.pipeline.stop  — 停止任务
+└── developer.pipeline.status — 查询任务状态
+
+前端广播事件：developer:buildProgress
+payload: { taskId, type, data }
+```
+
+#### 向后兼容
+
+- 「仅打包」模式完全不变，原有手动选目录的用户体验保持一致
+- CI/CD 环境下的 `canbox-publish.js` CLI 不受影响，与原来一样工作
+
+---
+
+### 打包历史记录（设计待实现）
+
+> 当前版本仅提供**会话内实时状态**（卡片 spinner + 弹窗日志），未实现持久化的历史记录。以下为后续迭代设计。
+
+#### 问题动机
+
+- 开发者点"停止"或关闭窗口后，之前构建了几步、跑了多久、zip 输出到哪——这些信息都会丢失
+- 想回溯一个 APP 最近几次打包情况（谁在什么时候打了什么版本、是成功还是失败）目前做不到
+- 之前构建失败的日志无法回看，遇到偶发性问题时缺乏证据
+
+#### 数据模型
+
+```js
+// 后端持久化存储：APP 目录下 .canbox-publish-history.json（或写进 ~/.canbox/history/publish/）
+{
+  id: "cb-jsonbox-20261106-154321",  // 唯一 ID
+  appId: "cb-jsonbox",               // APP package.json name
+  sourceDir: "/path/to/cb-jsonbox",
+  mode: "fullbuild" | "manual",
+  status: "success" | "failed" | "stopped",
+  steps: [                            // 各步骤耗时
+    { step: 1, name: "install", duration: 3200 },
+    { step: 2, name: "build", duration: 18300 },
+    { step: 3, name: "dist", duration: 120500 },
+    { step: 4, name: "zip", duration: 1500 },
+  ],
+  totalDuration: 143500,
+  zipPath: "/path/to/cb-jsonbox/cb-jsonbox-0.1.2-linux-x64.zip",
+  error: null,
+  logsPath: "~/.canbox/history/publish/cb-jsonbox-20261106-154321.log", // 完整日志归档
+  createdAt: 1730833401000,
+}
+```
+
+#### 存储方案
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| ① ~/.canbox/history/publish/{appId}/ | 全局集中，跨会话持久，清理方便 | 需要新增一个目录 |
+| ② APP 源码目录 .canbox-publish-history.json | 与项目绑定，gitignore 即可忽略 | 会给项目加文件 |
+| ③ 两者都存 | APP 内存本次，全局存归档 | 重复 |
+
+**建议**：采用方案 ①——全局 `~/.canbox/history/publish/` 目录，每个 APP 一个子目录，每次构建生成一个 json + log 文件。
+
+#### 前端入口
+
+- 在卡片上 spinner / 计时器旁加一个 📜 小图标（仅存在历史时显示），点击弹出该 APP 的最近 N 次打包历史
+- 在 developer 顶部工具栏（或 ProjectsView 的筛选/排序区域）加一个全局"📜 打包历史"按钮，点击打开跨 APP 的历史列表
+- 日志弹窗底部加"查看全部历史"链接，跳转到全局历史视图
+
+#### 历史列表 UI（草图）
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  📜 打包历史                              [清除全部]  [×] │
+├──────────────────────────────────────────────────────────┤
+│  筛选: [全部 ▼]  [成功 ▼]  [近7天 ▼]                     │
+│                                                          │
+│  ┌────────┬─────────┬──────────┬───────────┬─────────┐  │
+│  │ APP    │ 模式     │ 状态       │ 耗时      │ 时间    │  │
+│  ├────────┼─────────┼──────────┼───────────┼─────────┤  │
+│  │ JsonBox│ 完整构建 │ ✅ 成功   │ 03:18     │ 15:43   │  │
+│  │ JsonBox│ 完整构建 │ ❌ 失败   │ 01:05     │ 14:22   │  │
+│  │ EditBox│ 仅打包   │ ✅ 成功   │ 00:12     │ 昨天    │  │
+│  │ HostsBox│完整构建 │ ⏹️ 停止   │ 00:47     │ 昨天    │  │
+│  └────────┴─────────┴──────────┴───────────┴─────────┘  │
+│                                                          │
+│  共 12 条记录，占用 2.3 MB                               │
+└──────────────────────────────────────────────────────────┘
+```
+
+点击某一行 → 弹出该次构建的完整日志弹窗（复用现有日志弹窗组件）。
+
+#### 实现优先级
+
+P1：**存储 + APP 级历史列表 + 日志回看**（后端写 JSON + 读 JSON，前端加列表 + 弹窗）
+P2：全局历史视图、筛选排序、清除全部
+P3：导出 zip 路径到剪贴板、一键重跑上一次构建、状态变化时可选的桌面通知
+
+#### 改动文件预估
+
+| 文件 | 改动 |
+|------|------|
+| main.js | `runPipeline` 的 onDone 里追加持久化存储；新增 IPC `developer.pipeline.history.list` / `.detail` / `.clear` |
+| 新增 scripts/history-store.js | 负责读/写 `~/.canbox/history/publish/` 目录，含清理旧记录的策略 |
+| preload.js | 新增 3 个 IPC 封装 |
+| ProjectsView.vue | 卡片 📜 图标 + 点击弹历史列表；可能加全局历史入口 |
+| i18n | 新增 ~10 条文案 |
 
 ### 安装与运行
 

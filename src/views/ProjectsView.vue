@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, nextTick, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessageBox, ElSelect, ElOption } from 'element-plus';
 import { h } from 'vue';
@@ -10,6 +10,19 @@ const router = useRouter();
 const { t } = useI18n();
 const projects = ref([]);
 const packaging = ref({});
+
+// 完整构建流水线：跟踪每个卡片的构建状态 sourceDir → { taskId, startTime, currentStep, currentStepName, logs[], status, zipPath, error }
+const activeBuilds = ref({});
+const buildNowTick = ref(Date.now());
+let buildTimer = null;
+let progressUnsubscribe = null;
+// 自动清除已结束构建记录的定时器：sourceDir → Timeout
+const cleanupTimers = new Map();
+
+// 日志弹窗状态
+const logModalVisible = ref(false);
+const logModalSourceDir = ref('');
+const logAutoScroll = ref(true); // 用户手动上滚时设为 false
 
 // 平台 SVG 图标
 const PLATFORM_ICONS_SVG = {
@@ -163,9 +176,26 @@ async function publishApp(app) {
     try {
         const result = await window.api.developer.publishApp(app.sourceDir);
         if (result.canceled) return;
+
+        // 完整构建模式：后端已启动流水线，前端跟踪进度
+        if (result.mode === 'fullbuild' && result.taskId) {
+            activeBuilds.value[app.sourceDir] = {
+                taskId: result.taskId,
+                startTime: Date.now(),
+                currentStep: 0,
+                currentStepName: t('projects.pipelineDetecting'),
+                logs: [],
+                status: 'running',
+                zipPath: null,
+                error: null,
+            };
+            // 自动打开日志弹窗，让用户立即看到进度
+            openLogModalFor(app.sourceDir);
+            return;
+        }
+
+        // 仅打包模式（手动选目录）
         if (result.success) {
-            // 用模态对话框展示路径，避免 3s 自动消失导致用户错过
-            // 同时提供"打开所在目录"按钮，便于直接定位 zip
             try {
                 await ElMessageBox.confirm(
                     t('projects.publishedPrompt', { path: result.path }),
@@ -177,12 +207,9 @@ async function publishApp(app) {
                         closeOnClickModal: false
                     }
                 );
-                // 用户点击"打开所在目录"：打开 zip 所在目录
                 const folder = result.path.split('/').slice(0, -1).join('/') || '/';
                 await window.api.developer.openPath(folder);
-            } catch (_) {
-                // 用户点击"关闭"，无需处理
-            }
+            } catch (_) {}
         } else {
             notification.error(result.error || t('projects.publishFailed'));
         }
@@ -190,6 +217,218 @@ async function publishApp(app) {
         packaging.value[app.sourceDir] = false;
     }
 }
+
+/**
+ * 统一处理完整构建流水线的进度事件（来自后端 broadcast）
+ */
+function handleBuildProgress(payload) {
+    // 在 activeBuilds 里找到匹配的任务
+    const sourceDir = Object.keys(activeBuilds.value).find(
+        (k) => activeBuilds.value[k].taskId === payload.taskId
+    );
+    if (!sourceDir) return;
+
+    const build = activeBuilds.value[sourceDir];
+    if (!build) return;
+
+    switch (payload.type) {
+        case 'started':
+            // 后端发送 started，前端已知晓（publishApp 返回后设置了 activeBuilds），忽略
+            break;
+        case 'step':
+            build.currentStep = payload.data.step;
+            build.currentStepName = payload.data.name;
+            break;
+        case 'stepDone':
+            // 步骤完成提示（可选，用于详细展示）
+            break;
+        case 'log':
+            build.logs.push({ text: payload.data.text, stream: payload.data.stream });
+            if (build.logs.length > 3000) build.logs.shift(); // 前端内存留最近 3000 行
+            // 自动滚动：仅当用户未手动上滚时
+            if (logAutoScroll.value) {
+                requestAnimationFrame(scrollLogToBottom);
+            }
+            break;
+        case 'done':
+            build.status = 'success';
+            build.zipPath = payload.data.zipPath;
+            build.finalDuration = payload.data.duration;
+            notification.success(t('projects.pipelineDoneMsg') + ' · ' + formatDuration(build.finalDuration));
+            scheduleBuildCleanup(sourceDir);
+            break;
+        case 'failed':
+            build.status = 'failed';
+            build.error = payload.data.error;
+            build.finalDuration = payload.data.duration;
+            notification.error(t('projects.pipelineFailedMsg') + ': ' + (payload.data.error || ''));
+            scheduleBuildCleanup(sourceDir);
+            break;
+        case 'stopped':
+            build.status = 'stopped';
+            build.finalDuration = payload.data.duration;
+            notification.info(t('projects.pipelineStoppedMsg') + ' · ' + formatDuration(build.finalDuration));
+            scheduleBuildCleanup(sourceDir);
+            break;
+    }
+}
+
+/**
+ * 停止某个正在执行的流水线任务
+ */
+async function stopBuildTask(sourceDir) {
+    const build = activeBuilds.value[sourceDir];
+    if (!build) return;
+    try {
+        const result = await ElMessageBox.confirm(
+            t('projects.pipelineStopConfirm'),
+            t('projects.pipelineStopTitle'),
+            { type: 'warning', confirmButtonText: t('projects.pipelineStop'), cancelButtonText: t('projects.cancel') }
+        );
+        if (result !== 'confirm') return;
+    } catch (_) {
+        // ElMessageBox 取消时会 throw，忽略
+        return;
+    }
+    await window.api.developer.stopBuild(build.taskId);
+    // 注意：这里不弹 toast，等后端真正 stopped 后 handleBuildProgress 里统一弹
+}
+
+/**
+ * 打开日志弹窗（点击 spinner 或构建完成后自动打开）
+ */
+function openLogModalFor(sourceDir) {
+    logModalSourceDir.value = sourceDir;
+    logModalVisible.value = true;
+    logAutoScroll.value = true;
+    // 弹窗打开后自动滚到底
+    nextTick(() => scrollLogToBottom());
+}
+
+/**
+ * 关闭日志弹窗时，如果任务还在运行，继续在后台执行（spinner 会继续显示）
+ */
+function closeLogModal() {
+    logModalVisible.value = false;
+}
+
+/**
+ * 日志滚动事件：用户手动上滚时暂停自动滚动，滚回底部时恢复
+ */
+function onLogWheel(e) {
+    const el = e.target.closest('.log-scroll-area');
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // 用户向上滚（deltaY < 0）且离底部超过 20px → 暂停自动滚动
+    if (e.deltaY < 0 && distanceFromBottom > 20) {
+        logAutoScroll.value = false;
+    } else if (distanceFromBottom <= 20) {
+        logAutoScroll.value = true;
+    }
+}
+
+/**
+ * 日志滚动到最底部
+ */
+function scrollLogToBottom() {
+    const el = document.querySelector('.log-scroll-area');
+    if (el) el.scrollTop = el.scrollHeight;
+}
+
+/**
+ * 格式化时长为 MM:SS 或 HH:MM:SS
+ */
+function formatDuration(ms) {
+    const total = Math.floor(ms / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) {
+        return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * 复制日志到剪贴板
+ */
+async function copyLogsToClipboard() {
+    const build = activeBuilds.value[logModalSourceDir.value];
+    if (!build) return;
+    const text = build.logs.map((l) => l.text).join('\n');
+    try {
+        await navigator.clipboard.writeText(text);
+        notification.success(t('projects.pipelineLogsCopied'));
+    } catch (_) {
+        notification.error(t('projects.pipelineLogsCopyFailed'));
+    }
+}
+
+/**
+ * 打开打包好的 zip 所在目录
+ */
+async function openZipFolder(sourceDir) {
+    const build = activeBuilds.value[sourceDir];
+    if (!build || !build.zipPath) return;
+    const folder = build.zipPath.split('/').slice(0, -1).join('/') || '/';
+    await window.api.developer.openPath(folder);
+}
+
+/**
+ * 计算构建时长
+ * - running 状态：实时从 startTime 计算（依赖每秒 setInterval 刷新）
+ * - 非 running 状态：使用 finalDuration（停止/完成时后端 onDone 回调时保存）
+ */
+function buildElapsed(build) {
+    if (!build) return 0;
+    if (build.status !== 'running' && typeof build.finalDuration === 'number') {
+        return build.finalDuration;
+    }
+    return Math.max(0, buildNowTick.value - build.startTime);
+}
+
+/**
+ * 延迟 5 秒自动清除已结束的构建记录
+ * 给 spinner / 计时器留足时间展示结果，然后自动恢复按钮为"打包"
+ * 用户在这 5 秒内点 ✕ 或弹窗底部"清除记录"可立即清除（取消定时器）
+ */
+function scheduleBuildCleanup(sourceDir) {
+    // 取消之前可能存在的旧定时器（防止重复触发）
+    const existing = cleanupTimers.get(sourceDir);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+        clearFinishedBuild(sourceDir);
+        cleanupTimers.delete(sourceDir);
+    }, 5000);
+    cleanupTimers.set(sourceDir, timer);
+}
+
+/**
+ * 清除已结束的构建记录（恢复按钮为"打包"）
+ * 只清除非 running 状态的记录。会取消对应的自动清除定时器
+ */
+function clearFinishedBuild(sourceDir) {
+    const build = activeBuilds.value[sourceDir];
+    if (build && build.status !== 'running') {
+        delete activeBuilds.value[sourceDir];
+        // 取消自动清除定时器
+        const timer = cleanupTimers.get(sourceDir);
+        if (timer) {
+            clearTimeout(timer);
+            cleanupTimers.delete(sourceDir);
+        }
+    }
+}
+
+/**
+ * 获取步骤列表（用于弹窗顶部的进度条）
+ */
+const PIPELINE_STEPS = [
+    { step: 1, key: 'install', labelZh: '安装依赖', labelEn: 'Install' },
+    { step: 2, key: 'build', labelZh: '前端构建', labelEn: 'Build' },
+    { step: 3, key: 'dist', labelZh: 'Electron 打包', labelEn: 'Dist' },
+    { step: 4, key: 'zip', labelZh: '打包 zip', labelEn: 'Zip' },
+];
 
 async function clearData(app) {
     try {
@@ -250,12 +489,20 @@ onMounted(() => {
     unsubscribeAppsChanged = window.api.developer.onAppsChanged(() => loadProjects());
     window.addEventListener('focus', refreshIfVisible);
     document.addEventListener('visibilitychange', refreshIfVisible);
+
+    // 订阅完整构建流水线进度（统一入口，按 taskId 分发）
+    progressUnsubscribe = window.api.developer.onBuildProgress(handleBuildProgress);
+
+    // 每秒刷新计时器（驱动 duration 显示）
+    buildTimer = setInterval(() => { buildNowTick.value = Date.now(); }, 1000);
 });
 
 onUnmounted(() => {
     if (typeof unsubscribeAppsChanged === 'function') unsubscribeAppsChanged();
     window.removeEventListener('focus', refreshIfVisible);
     document.removeEventListener('visibilitychange', refreshIfVisible);
+    if (typeof progressUnsubscribe === 'function') progressUnsubscribe();
+    if (buildTimer) clearInterval(buildTimer);
 });
 </script>
 
@@ -332,9 +579,41 @@ onUnmounted(() => {
                             <el-tooltip :content="t('projects.run')" placement="top">
                                 <button class="icon-btn run-btn" :disabled="app.status !== 'ok'" @click="launchApp(app)">▶️</button>
                             </el-tooltip>
-                            <el-tooltip :content="t('projects.publish')" placement="top">
-                                <button class="icon-btn pack-btn" :disabled="app.status !== 'ok' || packaging[app.sourceDir]" @click="publishApp(app)">📦</button>
-                            </el-tooltip>
+                            <!-- 完整构建中：显示 spinner + 计时器 + 点击打开日志弹窗 -->
+                            <template v-if="activeBuilds[app.sourceDir]">
+                                <button
+                                    class="icon-btn pack-btn build-spinner"
+                                    :class="{
+                                        'build-running': activeBuilds[app.sourceDir].status === 'running',
+                                        'build-success': activeBuilds[app.sourceDir].status === 'success',
+                                        'build-failed': activeBuilds[app.sourceDir].status === 'failed',
+                                        'build-stopped': activeBuilds[app.sourceDir].status === 'stopped',
+                                    }"
+                                    :title="activeBuilds[app.sourceDir].status === 'running' ? (t('projects.pipelineRunning') + ' ' + formatDuration(buildElapsed(activeBuilds[app.sourceDir])) + ' · ' + activeBuilds[app.sourceDir].currentStepName) : (t('projects.pipelineDone') + ' ' + formatDuration(buildElapsed(activeBuilds[app.sourceDir])))"
+                                    @click="openLogModalFor(app.sourceDir)"
+                                >
+                                    <span v-if="activeBuilds[app.sourceDir].status === 'running'" class="spinner-icon">⏳</span>
+                                    <span v-else-if="activeBuilds[app.sourceDir].status === 'success'" class="done-icon">✅</span>
+                                    <span v-else-if="activeBuilds[app.sourceDir].status === 'failed'" class="fail-icon">❌</span>
+                                    <span v-else class="stop-icon">⏹️</span>
+                                </button>
+                                <span class="build-timer" @click="openLogModalFor(app.sourceDir)" :title="t('projects.pipelineOpenLog')">
+                                    {{ formatDuration(buildElapsed(activeBuilds[app.sourceDir])) }}
+                                </span>
+                                <!-- 已结束任务的清除按钮（✕），hover 显示，恢复按钮为"打包" -->
+                                <button
+                                    v-if="activeBuilds[app.sourceDir].status !== 'running'"
+                                    class="build-clear-btn"
+                                    :title="t('projects.pipelineClearRecord')"
+                                    @click="clearFinishedBuild(app.sourceDir)"
+                                >✕</button>
+                            </template>
+                            <!-- 无构建中：正常打包按钮 -->
+                            <template v-else>
+                                <el-tooltip :content="t('projects.publish')" placement="top">
+                                    <button class="icon-btn pack-btn" :disabled="app.status !== 'ok' || packaging[app.sourceDir]" @click="publishApp(app)">📦</button>
+                                </el-tooltip>
+                            </template>
                             <el-tooltip :content="t('projects.openDataDir')" placement="top">
                                 <button class="icon-btn open-data-dir-btn" :disabled="app.status !== 'ok'" @click="openDataDir(app)">📂</button>
                             </el-tooltip>
@@ -352,6 +631,108 @@ onUnmounted(() => {
                 </div>
             </div>
         </main>
+
+        <!-- 完整构建流水线日志弹窗 -->
+        <el-dialog
+            :model-value="logModalVisible"
+            @update:model-value="(v) => !v && closeLogModal()"
+            :title="logModalSourceDir && activeBuilds[logModalSourceDir] ? (t('projects.pipelineTitle') + ' · ' + formatDuration(buildElapsed(activeBuilds[logModalSourceDir]))) : t('projects.pipelineTitle')"
+            width="720px"
+            top="8vh"
+            :close-on-click-modal="false"
+            :destroy-on-close="false"
+        >
+            <div v-if="activeBuilds[logModalSourceDir]" class="pipeline-dialog-body">
+                <!-- 步骤进度条 -->
+                <div class="pipeline-steps">
+                    <div
+                        v-for="step in PIPELINE_STEPS"
+                        :key="step.step"
+                        class="pipeline-step"
+                        :class="{
+                            'step-done': activeBuilds[logModalSourceDir].currentStep > step.step || (activeBuilds[logModalSourceDir].status !== 'running' && activeBuilds[logModalSourceDir].currentStep >= step.step),
+                            'step-active': activeBuilds[logModalSourceDir].currentStep === step.step && activeBuilds[logModalSourceDir].status === 'running',
+                            'step-pending': activeBuilds[logModalSourceDir].currentStep < step.step,
+                            'step-success': activeBuilds[logModalSourceDir].status === 'success',
+                            'step-failed': activeBuilds[logModalSourceDir].status === 'failed' && activeBuilds[logModalSourceDir].currentStep === step.step,
+                        }"
+                    >
+                        <span class="step-indicator">
+                            <span v-if="activeBuilds[logModalSourceDir].currentStep > step.step || activeBuilds[logModalSourceDir].status === 'success'">✓</span>
+                            <span v-else-if="activeBuilds[logModalSourceDir].currentStep === step.step && activeBuilds[logModalSourceDir].status === 'running'" class="indicator-spinner">⏳</span>
+                            <span v-else-if="activeBuilds[logModalSourceDir].status === 'failed' && activeBuilds[logModalSourceDir].currentStep === step.step">✗</span>
+                            <span v-else>{{ step.step }}</span>
+                        </span>
+                        <span class="step-label">{{ t('projects.pipelineStep' + step.step) }}</span>
+                    </div>
+                </div>
+
+                <!-- 当前步骤名（运行中显示在日志区上方） -->
+                <div class="pipeline-current-step" v-if="activeBuilds[logModalSourceDir].status === 'running'">
+                    {{ activeBuilds[logModalSourceDir].currentStepName }}
+                </div>
+
+                <!-- 日志滚动区 -->
+                <div class="log-scroll-area" @wheel="onLogWheel">
+                    <div
+                        v-for="(line, idx) in activeBuilds[logModalSourceDir].logs"
+                        :key="idx"
+                        class="log-line"
+                        :class="{ 'log-stderr': line.stream === 'stderr' }"
+                    >{{ line.text }}</div>
+                    <div v-if="activeBuilds[logModalSourceDir].logs.length === 0" class="log-empty">
+                        {{ t('projects.pipelineLogWaiting') }}
+                    </div>
+                </div>
+
+                <!-- 底部状态栏 + 操作 -->
+                <div class="pipeline-status-bar">
+                    <div class="status-info">
+                        <span
+                            class="status-dot"
+                            :class="{
+                                'dot-running': activeBuilds[logModalSourceDir].status === 'running',
+                                'dot-success': activeBuilds[logModalSourceDir].status === 'success',
+                                'dot-failed': activeBuilds[logModalSourceDir].status === 'failed',
+                                'dot-stopped': activeBuilds[logModalSourceDir].status === 'stopped',
+                            }"
+                        ></span>
+                        <span class="status-text">
+                            <template v-if="activeBuilds[logModalSourceDir].status === 'running'">
+                                {{ t('projects.pipelineRunning') }} · {{ activeBuilds[logModalSourceDir].currentStepName }} · {{ formatDuration(buildElapsed(activeBuilds[logModalSourceDir])) }}
+                            </template>
+                            <template v-else-if="activeBuilds[logModalSourceDir].status === 'success'">
+                                ✅ {{ t('projects.pipelineDoneMsg') }} · {{ formatDuration(buildElapsed(activeBuilds[logModalSourceDir])) }}
+                            </template>
+                            <template v-else-if="activeBuilds[logModalSourceDir].status === 'failed'">
+                                ❌ {{ t('projects.pipelineFailedMsg') }}{{ activeBuilds[logModalSourceDir].error ? '：' + activeBuilds[logModalSourceDir].error : '' }}
+                            </template>
+                            <template v-else>
+                                ⏹️ {{ t('projects.pipelineStoppedMsg') }} · {{ formatDuration(buildElapsed(activeBuilds[logModalSourceDir])) }}
+                            </template>
+                        </span>
+                    </div>
+                    <div class="status-actions">
+                        <button class="btn" @click="copyLogsToClipboard">{{ t('projects.pipelineCopyLogs') }}</button>
+                        <button
+                            v-if="activeBuilds[logModalSourceDir].status !== 'running'"
+                            class="btn"
+                            @click="clearFinishedBuild(logModalSourceDir); closeLogModal();"
+                        >{{ t('projects.pipelineClearRecord') }}</button>
+                        <button
+                            v-if="activeBuilds[logModalSourceDir].status === 'running'"
+                            class="btn btn-danger"
+                            @click="stopBuildTask(logModalSourceDir)"
+                        >{{ t('projects.pipelineStop') }}</button>
+                        <button
+                            v-if="activeBuilds[logModalSourceDir].status === 'success' && activeBuilds[logModalSourceDir].zipPath"
+                            class="btn btn-primary"
+                            @click="openZipFolder(logModalSourceDir)"
+                        >{{ t('projects.openFolder') }}</button>
+                    </div>
+                </div>
+            </div>
+        </el-dialog>
     </div>
 </template>
 
@@ -558,4 +939,271 @@ onUnmounted(() => {
 .clear-btn:hover { background: #fff3e0; }
 .relocate-btn:hover { background: #fff8e1; }
 .delete-btn:hover { background: #ffebee; }
+
+/* ===== 完整构建流水线样式 ===== */
+.build-spinner {
+    position: relative;
+    transition: all 0.3s;
+}
+.build-spinner.build-running {
+    background: #e3f2fd;
+    border: 2px solid #409eff;
+    animation: pulse-border 1.5s ease-in-out infinite;
+}
+.build-spinner.build-success {
+    background: #e8f5e9;
+    border: 2px solid #67c23a;
+}
+.build-spinner.build-failed {
+    background: #fef0f0;
+    border: 2px solid #f56c6c;
+}
+.build-spinner.build-stopped {
+    background: #f4f4f5;
+    border: 2px solid #909399;
+}
+
+@keyframes pulse-border {
+    0%, 100% { border-color: #409eff; }
+    50% { border-color: #79bbff; }
+}
+
+.build-timer {
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 12px;
+    color: #409eff;
+    padding: 4px 6px;
+    margin-left: 2px;
+    background: #ecf5ff;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.build-running ~ .build-timer { color: #409eff; background: #ecf5ff; }
+.build-success ~ .build-timer { color: #67c23a; background: #f0f9eb; }
+.build-failed ~ .build-timer { color: #f56c6c; background: #fef0f0; }
+.build-stopped ~ .build-timer { color: #909399; background: #f4f4f5; }
+
+/* 清除已结束构建记录的按钮 */
+.build-clear-btn {
+    width: 22px;
+    height: 22px;
+    margin-left: 4px;
+    font-size: 11px;
+    line-height: 22px;
+    text-align: center;
+    border: none;
+    background: transparent;
+    color: #c0c4cc;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+}
+.build-clear-btn:hover {
+    background: #fef0f0;
+    color: #f56c6c;
+    opacity: 1;
+}
+/* hover actions 区域时显示清除按钮 */
+.app-actions:hover .build-clear-btn {
+    opacity: 0.8;
+}
+
+/* 弹窗内步骤进度条 */
+.pipeline-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.pipeline-steps {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid #ebeef5;
+}
+.pipeline-step {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #909399;
+    transition: all 0.3s;
+}
+.pipeline-step .step-indicator {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    background: #f4f4f5;
+    border: 2px solid #dcdfe6;
+    color: #909399;
+}
+.pipeline-step.step-done { color: #67c23a; }
+.pipeline-step.step-done .step-indicator {
+    background: #e1f3d8;
+    border-color: #67c23a;
+    color: #67c23a;
+}
+.pipeline-step.step-active { color: #409eff; }
+.pipeline-step.step-active .step-indicator {
+    background: #ecf5ff;
+    border-color: #409eff;
+    color: #409eff;
+}
+.pipeline-step.step-pending { color: #c0c4cc; }
+.pipeline-step.step-pending .step-indicator {
+    background: #f4f4f5;
+    border-color: #e4e7ed;
+    color: #c0c4cc;
+}
+.pipeline-step.step-failed { color: #f56c6c; }
+.pipeline-step.step-failed .step-indicator {
+    background: #fef0f0;
+    border-color: #f56c6c;
+    color: #f56c6c;
+}
+.indicator-spinner {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.step-label {
+    text-align: center;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* 当前步骤名提示 */
+.pipeline-current-step {
+    font-size: 13px;
+    color: #409eff;
+    background: #ecf5ff;
+    padding: 6px 10px;
+    border-radius: 4px;
+}
+
+/* 日志滚动区 */
+.log-scroll-area {
+    height: 320px;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border-radius: 6px;
+    padding: 10px 12px;
+    overflow-y: auto;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.55;
+}
+.log-scroll-area::-webkit-scrollbar {
+    width: 8px;
+}
+.log-scroll-area::-webkit-scrollbar-track {
+    background: #2d2d2d;
+}
+.log-scroll-area::-webkit-scrollbar-thumb {
+    background: #555;
+    border-radius: 4px;
+}
+.log-line {
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.log-line.log-stderr {
+    color: #f48771;
+}
+.log-empty {
+    color: #808080;
+    font-style: italic;
+    padding: 20px 0;
+    text-align: center;
+}
+
+/* 底部状态栏 */
+.pipeline-status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: #f5f7fa;
+    border-radius: 6px;
+    gap: 12px;
+}
+.status-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #606266;
+}
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.status-dot.dot-running {
+    background: #409eff;
+    animation: blink 1s ease-in-out infinite;
+}
+.status-dot.dot-success { background: #67c23a; }
+.status-dot.dot-failed { background: #f56c6c; }
+.status-dot.dot-stopped { background: #909399; }
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+.status-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 360px;
+}
+.status-actions {
+    display: flex;
+    gap: 6px;
+}
+.status-actions .btn {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    border: 1px solid #dcdfe6;
+    background: #fff;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #606266;
+}
+.status-actions .btn:hover {
+    border-color: #409eff;
+    color: #409eff;
+}
+.status-actions .btn.btn-primary {
+    background: #409eff;
+    border-color: #409eff;
+    color: #fff;
+}
+.status-actions .btn.btn-primary:hover {
+    background: #66b1ff;
+    border-color: #66b1ff;
+}
+.status-actions .btn.btn-danger {
+    background: #f56c6c;
+    border-color: #f56c6c;
+    color: #fff;
+}
+.status-actions .btn.btn-danger:hover {
+    background: #f78989;
+    border-color: #f78989;
+}
 </style>

@@ -71,8 +71,23 @@ const api = {
         // 启动源码目录中的 APP 进行调试
         launchApp: (sourceDir) => ipcRenderer.invoke('developer.apps.launch', sourceDir),
 
-        // 发布 APP（选构建产物目录，压标准 zip）
+        // 发布 APP：弹模式选择对话框（完整构建 / 仅打包）
+        // 完整构建返回 { mode: 'fullbuild', taskId }，需订阅 onBuildProgress 跟踪进度
+        // 仅打包返回 { path: '...' }（原有行为）
         publishApp: (sourceDir) => ipcRenderer.invoke('developer.apps.publish', sourceDir),
+
+        // ====== 完整构建流水线 API ======
+        // 停止某个正在执行的流水线任务
+        stopBuild: (taskId) => ipcRenderer.invoke('developer.pipeline.stop', taskId),
+        // 查询某个流水线任务的当前状态（含已累积的日志，供弹窗重新打开时拉取）
+        getBuildStatus: (taskId) => ipcRenderer.invoke('developer.pipeline.status', taskId),
+        // 监听任意流水线任务的进度事件（按 taskId 过滤）
+        // payload: { taskId, type: 'started'|'step'|'stepDone'|'log'|'done'|'failed'|'stopped', data }
+        onBuildProgress: (callback) => {
+            const handler = (_e, payload) => callback(payload);
+            ipcRenderer.on('developer:buildProgress', handler);
+            return () => ipcRenderer.removeListener('developer:buildProgress', handler);
+        },
 
         // 清除 APP 运行数据
         clearData: (appId) => ipcRenderer.invoke('developer.apps.clearData', appId),
