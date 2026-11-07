@@ -4,6 +4,30 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.2.1] - 2026-11-07
+
+### feat | 新功能 / Features
+
+新增「完整构建」流水线：一键执行依赖安装 → 前端构建 → Electron 打包 → zip 标准化打包，分步展示进度
+新增构建日志弹窗：实时滚动日志、步骤进度条、耗时计时，支持复制日志、清空记录、停止构建、打开构建目录
+卡片上以 spinner 与计时器展示构建状态，结束后自动清理并恢复打包按钮，也可手动清除记录
+
+Add a "full build" pipeline: one click runs dependency install → frontend build → Electron packaging → zip packaging with step-by-step progress
+Add a build log dialog with auto-scrolling logs, step progress and elapsed time, plus copy logs, clear record, stop build and open build directory
+Show build status on app cards with a spinner and timer; records auto-clear after finishing and the pack button is restored, with manual clearing available
+
+### style | 样式 / Styling
+
+调整项目视图卡片布局的列宽与间距，操作按钮支持换行
+
+Adjust card column widths and spacing in the projects view, and allow action buttons to wrap
+
+### build | 构建 / Build
+
+版本号更新至 0.2.1
+
+Bump version to 0.2.1
+
 ## [0.2.0] - 2026-10-27
 
 ### feat | 新功能 / Features
