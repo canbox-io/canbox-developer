@@ -932,7 +932,15 @@ ipcMain.handle('developer.shell.openUrl', async (_e, url) => {
 // 打开本地文件/目录（用于"打开所在目录"按钮等场景）
 ipcMain.handle('developer.shell.openPath', async (_e, targetPath) => {
     logger.info('[shell] openPath: %s', targetPath);
-    return shell.openPath(targetPath);
+    // 不能 await：部分 Linux 桌面下 xdg-open 会拉起常驻的文件管理器服务，
+    // shell.openPath 返回的 Promise 长时间不 resolve，导致 IPC 永不回复，
+    // renderer 侧报 "Error invoking remote method ...: reply was never sent"
+    Promise.resolve(shell.openPath(targetPath))
+        .then((error) => {
+            if (error) logger.error('[shell] openPath failed: %s', error);
+        })
+        .catch((e) => logger.error('[shell] openPath error: %s', e && e.message));
+    return { success: true };
 });
 
 // ====== 窗口创建 ======
