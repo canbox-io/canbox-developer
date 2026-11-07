@@ -309,7 +309,10 @@ function openLogModalFor(sourceDir) {
  * 关闭日志弹窗时，如果任务还在运行，继续在后台执行（spinner 会继续显示）
  */
 function closeLogModal() {
+    const sourceDir = logModalSourceDir.value;
     logModalVisible.value = false;
+    // 弹窗关闭后，若该构建已结束则清除记录（恢复卡片上的打包按钮）
+    if (sourceDir) clearFinishedBuild(sourceDir);
 }
 
 /**
@@ -397,8 +400,10 @@ function scheduleBuildCleanup(sourceDir) {
     const existing = cleanupTimers.get(sourceDir);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
-        clearFinishedBuild(sourceDir);
         cleanupTimers.delete(sourceDir);
+        // 弹窗正在展示该构建的日志时不清除，否则弹窗内容会消失只剩标题
+        if (logModalVisible.value && logModalSourceDir.value === sourceDir) return;
+        clearFinishedBuild(sourceDir);
     }, 5000);
     cleanupTimers.set(sourceDir, timer);
 }
@@ -717,7 +722,7 @@ onUnmounted(() => {
                         <button
                             v-if="activeBuilds[logModalSourceDir].status !== 'running'"
                             class="btn"
-                            @click="clearFinishedBuild(logModalSourceDir); closeLogModal();"
+                            @click="closeLogModal()"
                         >{{ t('projects.pipelineClearRecord') }}</button>
                         <button
                             v-if="activeBuilds[logModalSourceDir].status === 'running'"
