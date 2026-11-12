@@ -466,23 +466,97 @@ function buildCommand(pm, script, isInstall) {
 }
 
 /**
- * 构建 spawn 环境：补 shell PATH + HOME
+ * 从用户 shell 读取真实 PATH 与 VOLTA_HOME。
+ *
+ * Electron APP 从桌面/管理器启动时 PATH 常被裁剪，shell 里 export 的变量也不会带进来。
+ * 这里用交互式 shell 重新 source 用户 profile 来还原：
+ * Ubuntu 的 ~/.bashrc 在非交互模式下会提前 return，所以必须带 -i 才读得到用户 PATH。
+ *
+ * @returns {{path: string[], voltaHome: string}}
+ */
+function readUserShellEnv() {
+    const result = { path: [], voltaHome: '' };
+    // Windows 没有 POSIX shell profile，PATH 由系统提供，无需（也无法）从 profile 读取
+    if (process.platform === 'win32') return result;
+    const profiles = [
+        path.join(os.homedir(), '.zshrc'),
+        path.join(os.homedir(), '.zprofile'),
+        path.join(os.homedir(), '.bashrc'),
+        path.join(os.homedir(), '.bash_profile'),
+        path.join(os.homedir(), '.profile'),
+    ];
+    const shell = process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash';
+    for (const profile of profiles) {
+        if (!fs.existsSync(profile)) continue;
+        try {
+            const { execSync } = require('child_process');
+            // 末尾两行固定是 PATH 与 VOLTA_HOME，前面的内容忽略（rc 文件可能有其他输出）
+            const out = execSync(
+                `${shell} -ic 'source "${profile}" >/dev/null 2>&1; printf "%s\\n%s" "$PATH" "$VOLTA_HOME"'`,
+                { encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }
+            ).trim();
+            const lines = out.split('\n');
+            const userPath = (lines[lines.length - 2] || '').split(':').filter(Boolean);
+            if (userPath.length <= 2) continue;
+            result.path = userPath;
+            result.voltaHome = (lines[lines.length - 1] || '').trim();
+            break;
+        } catch (_) {}
+    }
+    return result;
+}
+
+/**
+ * 找到真正可用的 Volta 安装根目录。
+ *
+ * Volta 的 node/npm shim 只认 VOLTA_HOME：变量缺失时会退回 ~/.volta，
+ * 若那里没装 node 就会报 "Node is not available" 并以 126 退出。
+ * 这里从 PATH 中的 volta shim 目录反推安装根目录，挑第一个真的装了 node 的。
+ *
+ * @param {object} env - 已带 VOLTA_HOME 的环境变量
+ * @param {string[]} pathDirs - 候选 PATH 目录
+ * @returns {string|null}
+ */
+function resolveVoltaHome(env, pathDirs) {
+    const candidates = [];
+    if (env.VOLTA_HOME) candidates.push(env.VOLTA_HOME);
+    for (const dir of pathDirs) {
+        if (path.basename(dir).toLowerCase() !== 'bin') continue;
+        if (fs.existsSync(path.join(path.dirname(dir), 'tools'))) candidates.push(path.dirname(dir));
+    }
+    candidates.push(path.join(os.homedir(), '.volta'));
+    // Windows 上 Volta 默认装在 %LOCALAPPDATA%\Volta
+    if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+        candidates.push(path.join(process.env.LOCALAPPDATA, 'Volta'));
+    }
+
+    for (const home of candidates) {
+        try {
+            const versions = fs.readdirSync(path.join(home, 'tools', 'image', 'node'));
+            if (versions.length > 0) return home;
+        } catch (_) {}
+    }
+    return null;
+}
+
+/**
+ * 构建 spawn 环境：补 shell PATH + HOME + VOLTA_HOME
  * @returns {object}
  */
 function buildShellEnv() {
     const env = { ...process.env };
-    const existing = (env.PATH || '').split(':').filter(Boolean);
+    const userShell = readUserShellEnv();
+    const existing = (env.PATH || '').split(path.delimiter).filter(Boolean);
 
-    // 候选 PATH：从多个来源尝试拼装，优先用用户 shell 里的真实 PATH
+    // 候选 PATH：用户 shell 的真实 PATH 优先，其次是当前进程 PATH 与常见安装位置
     const pathCandidates = [
+        ...userShell.path,
         ...existing,
         // Homebrew
         '/usr/local/bin',
         '/opt/homebrew/bin',
         // nvm（多个 node 版本）
         path.join(os.homedir(), '.nvm', 'versions', 'node'),
-        // volta
-        path.join(os.homedir(), '.volta', 'bin'),
         // fnm
         path.join(os.homedir(), '.fnm', 'node-versions'),
         // asdf
@@ -498,36 +572,16 @@ function buildShellEnv() {
         '/sbin',
     ];
 
-    // 尝试从用户 shell profile 中 source PATH（覆盖 Electron 裁剪后的 PATH）
-    try {
-        const { execSync } = require('child_process');
-        // 依次尝试 zsh, bash, sh 的 profile
-        const profileCandidates = [
-            path.join(os.homedir(), '.zshrc'),
-            path.join(os.homedir(), '.zprofile'),
-            path.join(os.homedir(), '.bashrc'),
-            path.join(os.homedir(), '.bash_profile'),
-            path.join(os.homedir(), '.profile'),
-        ];
-        for (const profile of profileCandidates) {
-            if (fs.existsSync(profile)) {
-                try {
-                    const shell = process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash';
-                    const result = execSync(
-                        `${shell} -c 'source "${profile}" 2>/dev/null && echo $PATH'`,
-                        { encoding: 'utf-8', timeout: 3000 }
-                    );
-                    const userPath = result.trim().split(':').filter(Boolean);
-                    if (userPath.length > 2) {
-                        pathCandidates.unshift(...userPath); // 用户 shell PATH 放最前
-                        break;
-                    }
-                } catch (_) {}
-            }
-        }
-    } catch (_) {}
+    // Volta：PATH 里只要出现 shim，就必须保证 VOLTA_HOME 指向真正装了 node 的安装目录
+    if (userShell.voltaHome) env.VOLTA_HOME = userShell.voltaHome;
+    const voltaHome = resolveVoltaHome(env, pathCandidates);
+    if (voltaHome) {
+        env.VOLTA_HOME = voltaHome;
+        pathCandidates.push(path.join(voltaHome, 'bin'));
+    }
+    // 探测不到时保留原有 VOLTA_HOME，不做删除，避免影响其他平台的正常配置
 
-    env.PATH = [...new Set(pathCandidates)].join(':');
+    env.PATH = [...new Set(pathCandidates)].join(path.delimiter);
     env.HOME = env.HOME || os.homedir();
     env.LANG = env.LANG || 'en_US.UTF-8';
     return env;
@@ -702,6 +756,14 @@ function runPipeline(sourceDir, options = {}) {
                     // 被 stop() 杀掉
                     reject(new Error('STOPPED'));
                 } else if (code !== 0) {
+                    if (code === 126) {
+                        // 典型场景：命令存在但无法执行——Volta shim 找不到 node 时会以 126 退出
+                        emitLog(
+                            '[pipeline] 提示：命令存在但无法执行。若使用 Volta，请确认 VOLTA_HOME 指向已安装 node 的 Volta 目录'
+                            + `（当前 VOLTA_HOME=${buildShellEnv().VOLTA_HOME || '(未设置)'}），或先执行 volta install node。`,
+                            'stderr'
+                        );
+                    }
                     reject(new Error(`退出码 ${code}`));
                 } else {
                     resolve();
