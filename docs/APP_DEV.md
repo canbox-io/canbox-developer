@@ -11,7 +11,7 @@
 | 层                         | 角色                                                                | 是否必需 |
 | -------------------------- | ------------------------------------------------------------------- | -------- |
 | **APP 自身**         | 标准 Electron 应用（`app.whenReady()` + `new BrowserWindow()`） | 必需     |
-| **canbox-core**      | 服务提供层，通过 `-r` 注入，提供 store/db/misc 公共服务（数据隔离与环境信息） | 可选     |
+| **canbox-core**      | 服务提供层，通过 `-r` 注入，提供 store/db/misc/whatsNew 公共服务（数据隔离、环境信息、更新触达） | 可选     |
 | **canbox-developer** | 开发工具，提供调试启动、打包发布等便利                              | 可选     |
 
 ### 不使用 canbox-core / canbox-developer 的影响
@@ -332,9 +332,13 @@ APP 分类通过仓库根目录 `.canbox-app` 文件的 `category` 字段声明�
         "range": "42.5.1"
     },
     "type": "native",
-    "webApp": null
+    "webApp": null,
+    "minCoreVersion": "0.1.6",
+    "requires": { "whatsNew": true }
 }
 ```
+
+`minCoreVersion` / `requires` 为可选的运行时能力声明：APP 依赖较新的 canbox-core 能力时填写，canbox-manager 会在启动前校验，低于最低版本或能力缺失时拒绝启动并列出缺失项，避免启动后才发现 IPC 不存在。仅 `type: "native"`（自带 Electron）的 APP 会被校验。
 
 ### 字段说明
 
@@ -344,6 +348,9 @@ APP 分类通过仓库根目录 `.canbox-app` 文件的 `category` 字段声明�
 | `electron.range`  | 是   | string | Electron 版本范围（semver），必须命中 canbox 官方白名单              |
 | `type`            | 是   | string | APP 类型：`native`（普通 APP）或 `web`（网页应用）                 |
 | `webApp`          | 否   | object | `type=web` 时的网页应用配置（url、isPwa、menuBar 等），native 为 null |
+| `shellVersion`    | 否   | number | 网页应用外壳版本，由 canbox-manager 写入与升级，APP 无需手动维护      |
+| `minCoreVersion`  | 否   | string | 要求的最低 canbox-core 版本，低于该版本拒绝启动                       |
+| `requires`        | 否   | object | 按能力名声明依赖（如 `{ "whatsNew": true }`），未声明视为不满足       |
 
 ### electron 版本选择
 
@@ -419,6 +426,11 @@ contextBridge.exposeInMainWorld('api', {
         getCoreVersion: () => ipcRenderer.invoke('canbox.misc.getCoreVersion'),
         getCorePath: () => ipcRenderer.invoke('canbox.misc.getCorePath'),
         getPlatformInfo: () => ipcRenderer.invoke('canbox.misc.getPlatformInfo')
+    },
+    whatsNew: {
+        check: (options) => ipcRenderer.invoke('canbox.whatsNew.check', options),
+        ack: (version) => ipcRenderer.invoke('canbox.whatsNew.ack', version),
+        getVersion: () => ipcRenderer.invoke('canbox.whatsNew.getVersion')
     }
 
     // === APP 自有 IPC（非 canbox-core 提供，按需添加）===
@@ -453,6 +465,25 @@ await window.api.db.put({ _id: 'doc1', name: 'test' });
 const doc = await window.api.db.get('doc1');
 const result = await window.api.db.find({ selector: { type: 'item' } });
 ```
+
+### whatsNew — 更新内容
+
+APP 升级后告知用户"改了什么"。`lastSeenVersion` 存储到 `{Users}/data/{appId}/store/whats-new.json`（按 appId 隔离），版本段落解析自 APP 根目录的 `CHANGELOG.md`（打包进 `app.asar` 也可读取）。
+
+```javascript
+const res = await window.api.whatsNew.check();
+if (res.show) {
+    // res.sections 为 [{ version, date, body }]，新版本在前
+    renderChangelog(res.sections);
+    await window.api.whatsNew.ack(res.currentVersion);  // 用户关闭弹窗后记录已读
+}
+```
+
+- `CHANGELOG.md` 放在 APP 根目录（与 `package.json` 同级），打包时需一并复制；条目格式为 `## [x.y.z] - YYYY-MM-DD`
+- 正文中文一行、英文一行成对书写，渲染时按当前语言筛选
+- `check` 参数全部可选：`{ version, maxSections, changelog, changelogPath }`，`maxSections` 默认 3
+- 首次运行、版本未变化不展示；版本降低时对齐记录
+- 自 canbox-core `0.1.6` 起提供。APP 若依赖该能力，在 `.canbox-app` 中声明 `minCoreVersion` / `requires`，manager 会在启动前校验
 
 ## 数据目录结构
 
