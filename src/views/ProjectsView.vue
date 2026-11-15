@@ -191,6 +191,8 @@ async function publishApp(app) {
             };
             // 自动打开日志弹窗，让用户立即看到进度
             openLogModalFor(app.sourceDir);
+            // 流水线在主进程里同步启动，注册之前广播的早期日志/终态会丢，这里拉快照补回
+            syncBuildSnapshot(app.sourceDir, result.taskId);
             return;
         }
 
@@ -215,6 +217,48 @@ async function publishApp(app) {
         }
     } finally {
         packaging.value[app.sourceDir] = false;
+    }
+}
+
+/**
+ * 拉取流水线快照，补齐注册 activeBuilds 之前广播出去的日志与终态。
+ * 主进程保留了完整日志，快照里的日志一定是已收到日志的超集，整体替换即可，不会重复。
+ */
+async function syncBuildSnapshot(sourceDir, taskId) {
+    let resp;
+    try {
+        resp = await window.api.developer.getBuildStatus(taskId);
+    } catch (_) {
+        return;
+    }
+    if (!resp || !resp.success || !resp.status) return;
+    const build = activeBuilds.value[sourceDir];
+    if (!build || build.taskId !== taskId) return;
+
+    const snapshot = resp.status;
+    if (Array.isArray(snapshot.logs) && snapshot.logs.length > build.logs.length) {
+        build.logs = snapshot.logs.map((l) => ({ text: l.text, stream: l.stream }));
+        if (logAutoScroll.value) nextTick(() => scrollLogToBottom());
+    }
+    if (snapshot.currentStep) {
+        build.currentStep = snapshot.currentStep;
+        build.currentStepName = snapshot.currentStepName || build.currentStepName;
+    }
+
+    // 终态事件也可能在注册前就广播完了（命令找不到时几十毫秒就失败），按快照补齐状态
+    if (build.status === 'running' && snapshot.status && snapshot.status !== 'running') {
+        build.status = snapshot.status;
+        build.zipPath = snapshot.zipPath || null;
+        build.error = snapshot.error || null;
+        build.finalDuration = Math.max(0, Date.now() - build.startTime);
+        if (build.status === 'success') {
+            notification.success(t('projects.pipelineDoneMsg') + ' · ' + formatDuration(build.finalDuration));
+        } else if (build.status === 'failed') {
+            notification.error(t('projects.pipelineFailedMsg') + ': ' + (build.error || ''));
+        } else {
+            notification.info(t('projects.pipelineStoppedMsg') + ' · ' + formatDuration(build.finalDuration));
+        }
+        scheduleBuildCleanup(sourceDir);
     }
 }
 

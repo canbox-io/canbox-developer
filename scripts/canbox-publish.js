@@ -540,37 +540,80 @@ function resolveVoltaHome(env, pathDirs) {
 }
 
 /**
+ * 读取 env 中的 PATH。
+ * Windows 上环境变量键名大小写不固定（通常是 Path），不能直接用 env.PATH 读——
+ * 展开 process.env 得到的是 Path，env.PATH 会是 undefined，导致原有 PATH 整段丢失。
+ * @param {object} env
+ * @returns {string}
+ */
+function getEnvPath(env) {
+    if (process.platform !== 'win32') return env.PATH || '';
+    const key = Object.keys(env).find((k) => k.toLowerCase() === 'path');
+    return (key && env[key]) || '';
+}
+
+/**
+ * 写入 env 的 PATH。
+ * Windows 上必须复用已有的键名（Path），否则 env 里会同时存在 Path 和 PATH 两个键，
+ * 系统取到哪个不确定——实测会取到新写的残缺 PATH，结果连 npm/where 都找不到。
+ * @param {object} env
+ * @param {string} value
+ */
+function setEnvPath(env, value) {
+    if (process.platform !== 'win32') {
+        env.PATH = value;
+        return;
+    }
+    const key = Object.keys(env).find((k) => k.toLowerCase() === 'path') || 'Path';
+    env[key] = value;
+}
+
+/**
  * 构建 spawn 环境：补 shell PATH + HOME + VOLTA_HOME
  * @returns {object}
  */
 function buildShellEnv() {
     const env = { ...process.env };
     const userShell = readUserShellEnv();
-    const existing = (env.PATH || '').split(path.delimiter).filter(Boolean);
+    const existing = getEnvPath(env).split(path.delimiter).filter(Boolean);
 
     // 候选 PATH：用户 shell 的真实 PATH 优先，其次是当前进程 PATH 与常见安装位置
-    const pathCandidates = [
-        ...userShell.path,
-        ...existing,
-        // Homebrew
-        '/usr/local/bin',
-        '/opt/homebrew/bin',
-        // nvm（多个 node 版本）
-        path.join(os.homedir(), '.nvm', 'versions', 'node'),
-        // fnm
-        path.join(os.homedir(), '.fnm', 'node-versions'),
-        // asdf
-        path.join(os.homedir(), '.asdf', 'shims'),
-        // snap
-        '/snap/bin',
-        // 用户 bin
-        path.join(os.homedir(), '.local', 'bin'),
-        // Ubuntu/Debian
-        '/usr/bin',
-        '/bin',
-        '/usr/sbin',
-        '/sbin',
-    ];
+    const pathCandidates = [...userShell.path, ...existing];
+
+    if (process.platform === 'win32') {
+        // Windows 没有 POSIX 目录，补系统目录与常见 Node 安装位置
+        // （why：从桌面/管理器启动 Electron 时 PATH 常缺 System32，连 where 都跑不起来）
+        const sysRoot = env.SystemRoot || env.SYSTEMROOT || 'C:\\Windows';
+        pathCandidates.push(
+            path.join(sysRoot, 'System32'),
+            sysRoot,
+            path.join(sysRoot, 'System32', 'Wbem'),
+            env.ProgramFiles ? path.join(env.ProgramFiles, 'nodejs') : 'C:\\Program Files\\nodejs',
+            env.APPDATA ? path.join(env.APPDATA, 'npm') : '',
+            env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'Programs', 'nodejs') : ''
+        );
+    } else {
+        pathCandidates.push(
+            // Homebrew
+            '/usr/local/bin',
+            '/opt/homebrew/bin',
+            // nvm（多个 node 版本）
+            path.join(os.homedir(), '.nvm', 'versions', 'node'),
+            // fnm
+            path.join(os.homedir(), '.fnm', 'node-versions'),
+            // asdf
+            path.join(os.homedir(), '.asdf', 'shims'),
+            // snap
+            '/snap/bin',
+            // 用户 bin
+            path.join(os.homedir(), '.local', 'bin'),
+            // Ubuntu/Debian
+            '/usr/bin',
+            '/bin',
+            '/usr/sbin',
+            '/sbin'
+        );
+    }
 
     // Volta：PATH 里只要出现 shim，就必须保证 VOLTA_HOME 指向真正装了 node 的安装目录
     if (userShell.voltaHome) env.VOLTA_HOME = userShell.voltaHome;
@@ -581,7 +624,7 @@ function buildShellEnv() {
     }
     // 探测不到时保留原有 VOLTA_HOME，不做删除，避免影响其他平台的正常配置
 
-    env.PATH = [...new Set(pathCandidates)].join(path.delimiter);
+    setEnvPath(env, [...new Set(pathCandidates.filter(Boolean))].join(path.delimiter));
     env.HOME = env.HOME || os.homedir();
     env.LANG = env.LANG || 'en_US.UTF-8';
     return env;
