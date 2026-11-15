@@ -913,10 +913,10 @@ jobs:
 {
     "scripts": {
         "build": "vite build",
-        "dist": "electron-builder --linux dir"
+        "dist": "electron-builder --dir"
     },
     "devDependencies": {
-        "electron-builder": "^26.0.12"
+        "electron-builder": "^26.18.0"
     },
     "build": {
         "appId": "com.example.my-app",
@@ -928,10 +928,14 @@ jobs:
             "package.json",
             "logo.png"
         ],
-        "linux": { "target": ["dir"] }
+        "linux": { "target": ["dir"] },
+        "win": { "target": ["dir"] }
     }
 }
 ```
+
+> `dist` 只保留一个平台无关的 `electron-builder --dir`：它默认打包当前平台（Windows 产出 `dist/win-unpacked`，Linux 产出 `dist/linux-unpacked`）。
+> 不要为了区分平台再拆 `dist:win` / `dist:linux`——流水线优先使用 `dist`，平台专用脚本只在 APP 确实依赖平台相关包时才需要。
 
 #### 场景二：独立 APP（原生安装包 + canbox zip）
 
