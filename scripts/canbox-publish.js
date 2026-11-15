@@ -307,12 +307,14 @@ function detectBuildScript(scripts) {
  * @returns {string|null} 脚本名，未找到返回 null
  */
 function detectDistScript(scripts) {
-    // 平台专用脚本优先：APP 的 dist 往往固定打某一个平台的包（如 --linux dir），
-    // Windows 上要优先用 dist:win，否则会打出当前系统用不了的 Linux 产物
-    const candidates = process.platform === 'win32'
-        ? ['dist:win', 'win', 'dist', 'package', 'make', 'builder', 'electron-builder', 'asar', 'pack']
-        : ['dist', 'package', 'make', 'builder', 'electron-builder', 'asar', 'pack'];
-    for (const name of candidates) {
+    // 通用脚本优先：electron-builder 的 --dir 默认为当前平台，
+    // 绝大多数 APP 只需一个 dist，不应按平台拆分脚本。
+    // 平台专用脚本仅作兜底，供确实依赖平台相关包的项目使用。
+    const generic = ['dist', 'package', 'make', 'builder', 'electron-builder', 'asar', 'pack'];
+    const platformSpecific = process.platform === 'win32'
+        ? ['dist:win', 'win']
+        : ['dist:linux', 'linux'];
+    for (const name of [...generic, ...platformSpecific]) {
         if (typeof scripts[name] === 'string') return name;
     }
     return null;
@@ -361,9 +363,25 @@ function detectPipelineConfig(sourceDir) {
 }
 
 /**
+ * 从 unpacked 目录名推断平台（win-unpacked / linux-unpacked / mac-arm64 ...）
+ * @param {string} dirName
+ * @returns {'win32'|'darwin'|'linux'|''}
+ */
+function unpackedPlatform(dirName) {
+    const name = dirName.toLowerCase();
+    if (name.includes('win')) return 'win32';
+    if (name.includes('mac') || name.includes('darwin')) return 'darwin';
+    if (name.includes('linux')) return 'linux';
+    return '';
+}
+
+/**
  * glob 同步找 app.asar（支持 electron-builder 和 electron-forge 多种产物布局）
+ *
+ * 同一模式可能命中多个目录（如同时存在 win-unpacked 与 linux-unpacked），
+ * 这里优先选当前平台、其次选最新构建的那个——否则会静默打包成旧产物/其它平台的包。
  * @param {string} sourceDir - APP 源码目录
- * @returns {{ resourcesDir: string, hasUnpacked: boolean }|null}
+ * @returns {{ resourcesDir: string, hasUnpacked: boolean, platformMismatch: boolean }|null}
  */
 function findResourcesDir(sourceDir) {
     const patterns = [
@@ -381,16 +399,67 @@ function findResourcesDir(sourceDir) {
     ];
 
     for (const pattern of patterns) {
-        const found = globFirst(sourceDir, pattern);
-        if (found) {
-            // app.asar 路径 → resources 目录是它的父目录
-            // app 目录（未打 asar）→ resources 目录是它的父目录
+        const matches = [];
+        for (const found of globAll(sourceDir, pattern)) {
             const resourcesDir = path.dirname(found);
-            const hasUnpacked = fs.existsSync(path.join(resourcesDir, 'app.asar.unpacked'));
-            return { resourcesDir, hasUnpacked: hasUnpacked || fs.statSync(found).isDirectory() };
+            // resources 的父目录才是 win-unpacked / linux-unpacked
+            const platform = unpackedPlatform(path.basename(path.dirname(resourcesDir)));
+            let mtime = 0;
+            try { mtime = fs.statSync(found).mtimeMs; } catch (_) { /* 忽略 */ }
+            matches.push({ resourcesDir, found, platform, mtime });
         }
+        if (!matches.length) continue;
+
+        const samePlatform = matches.filter((item) => !item.platform || item.platform === process.platform);
+        const pool = (samePlatform.length ? samePlatform : matches).slice().sort((a, b) => b.mtime - a.mtime);
+        const best = pool[0];
+        const hasUnpacked = fs.existsSync(path.join(best.resourcesDir, 'app.asar.unpacked'))
+            || fs.statSync(best.found).isDirectory();
+        return {
+            resourcesDir: best.resourcesDir,
+            hasUnpacked: hasUnpacked,
+            platformMismatch: samePlatform.length === 0 && !!best.platform
+        };
     }
     return null;
+}
+
+/**
+ * 简易 glob 实现（仅支持 * 和 ** 通配符，同步，返回全部匹配）
+ * @param {string} root - 搜索根目录
+ * @param {string} pattern - 相对路径模式
+ * @returns {string[]} 全部匹配的绝对路径
+ */
+function globAll(root, pattern) {
+    const parts = pattern.split('/');
+    const results = [];
+    function walk(dir, idx) {
+        if (idx >= parts.length) {
+            if (fs.existsSync(dir)) results.push(dir);
+            return;
+        }
+        const part = parts[idx];
+        if (part === '**') {
+            walk(dir, idx + 1);
+            if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
+            let entries;
+            try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+            for (const entry of entries) {
+                if (entry.isDirectory()) walk(path.join(dir, entry.name), idx);
+            }
+            return;
+        }
+        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
+        let entries;
+        try { entries = fs.readdirSync(dir); } catch (_) { return; }
+        const regex = globPartToRegex(part);
+        for (const name of entries) {
+            if (!regex.test(name)) continue;
+            walk(path.join(dir, name), idx + 1);
+        }
+    }
+    walk(root, 0);
+    return results;
 }
 
 /**
@@ -890,6 +959,29 @@ function runPipeline(sourceDir, options = {}) {
                 return;
             }
             emitLog(`[pipeline] 找到产物目录: ${found.resourcesDir}`, 'stdout');
+
+            if (found.platformMismatch) {
+                emitLog(
+                    `[pipeline] ⚠ 未找到当前平台（${process.platform}）的构建产物，退而使用其它平台产物：${found.resourcesDir}`,
+                    'stderr'
+                );
+            }
+
+            // 新鲜度校验：产物必须是本次 dist 步骤产出的，
+            // 否则说明打包脚本把产物写到了别处，或实际执行了其它平台的打包命令
+            const builtAsarPath = path.join(found.resourcesDir, 'app.asar');
+            if (fs.existsSync(builtAsarPath)) {
+                const asarMtime = fs.statSync(builtAsarPath).mtimeMs;
+                emitLog(`[pipeline] app.asar 时间: ${new Date(asarMtime).toLocaleString()}`, 'stdout');
+                if (asarMtime < stepStart) {
+                    emitError('找到的 app.asar 早于本次构建开始时间，不是本次构建的产物');
+                    emitError(`产物路径：${builtAsarPath}`);
+                    emitError('常见原因：dist 脚本产出到其它目录；或实际执行的是其它平台的打包命令（如 --linux dir）。');
+                    emitError('请检查 package.json 的 dist 脚本，Windows 下应使用 electron-builder --win dir。');
+                    finish(false, null, '构建产物不是本次构建生成（app.asar 时间戳过旧）', STEP_DIST);
+                    return;
+                }
+            }
 
             // ===== Step 5: packCanboxZip =====
             emitStepStart(STEP_ZIP, '打包 zip');
