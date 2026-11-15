@@ -307,7 +307,11 @@ function detectBuildScript(scripts) {
  * @returns {string|null} 脚本名，未找到返回 null
  */
 function detectDistScript(scripts) {
-    const candidates = ['dist', 'package', 'make', 'builder', 'electron-builder', 'asar', 'pack'];
+    // 平台专用脚本优先：APP 的 dist 往往固定打某一个平台的包（如 --linux dir），
+    // Windows 上要优先用 dist:win，否则会打出当前系统用不了的 Linux 产物
+    const candidates = process.platform === 'win32'
+        ? ['dist:win', 'win', 'dist', 'package', 'make', 'builder', 'electron-builder', 'asar', 'pack']
+        : ['dist', 'package', 'make', 'builder', 'electron-builder', 'asar', 'pack'];
     for (const name of candidates) {
         if (typeof scripts[name] === 'string') return name;
     }
