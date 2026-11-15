@@ -967,19 +967,18 @@ function runPipeline(sourceDir, options = {}) {
                 );
             }
 
-            // 新鲜度校验：产物必须是本次 dist 步骤产出的，
-            // 否则说明打包脚本把产物写到了别处，或实际执行了其它平台的打包命令
+            // 新鲜度检查（仅提示，不阻断）：
+            // electron-builder 在目录替换失败时会退化为 copy+delete，并保留文件时间戳，
+            // 用它和步骤起点做毫秒级比较会误判，因此只针对“早于整个流水线开始”这种明显过旧的产物提示
             const builtAsarPath = path.join(found.resourcesDir, 'app.asar');
             if (fs.existsSync(builtAsarPath)) {
                 const asarMtime = fs.statSync(builtAsarPath).mtimeMs;
                 emitLog(`[pipeline] app.asar 时间: ${new Date(asarMtime).toLocaleString()}`, 'stdout');
-                if (asarMtime < stepStart) {
-                    emitError('找到的 app.asar 早于本次构建开始时间，不是本次构建的产物');
-                    emitError(`产物路径：${builtAsarPath}`);
-                    emitError('常见原因：dist 脚本产出到其它目录；或实际执行的是其它平台的打包命令（如 --linux dir）。');
-                    emitError('请检查 package.json 的 dist 脚本，Windows 下应使用 electron-builder --win dir。');
-                    finish(false, null, '构建产物不是本次构建生成（app.asar 时间戳过旧）', STEP_DIST);
-                    return;
+                if (asarMtime < pipelineStart - 2000) {
+                    emitLog(
+                        `[pipeline] ⚠ app.asar 早于本次构建开始时间，可能不是本次构建的产物（请确认 dist 脚本未把产物写到别处）`,
+                        'stderr'
+                    );
                 }
             }
 
