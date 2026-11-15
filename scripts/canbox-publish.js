@@ -363,6 +363,24 @@ function detectPipelineConfig(sourceDir) {
 }
 
 /**
+ * 读取真实文件 stat（绕过 Electron 的 asar 补丁）
+ * Electron 会把 *.asar 当作目录：statSync 返回 mtime=当前时间、size=0、isDirectory=true，
+ * 直接用它判断产物新旧会永远得到"刚构建"的结论，也会把 app.asar 误判成产物目录。
+ * @param {string} p - 文件路径
+ * @returns {import('fs').Stats}
+ */
+function statReal(p) {
+    if (!process.versions.electron) return fs.statSync(p);
+    const prevNoAsar = process.noAsar;
+    process.noAsar = true;
+    try {
+        return fs.statSync(p);
+    } finally {
+        process.noAsar = prevNoAsar;
+    }
+}
+
+/**
  * 从 unpacked 目录名推断平台（win-unpacked / linux-unpacked / mac-arm64 ...）
  * @param {string} dirName
  * @returns {'win32'|'darwin'|'linux'|''}
@@ -406,7 +424,7 @@ function findResourcesDir(sourceDir) {
             // resources 的父目录才是 win-unpacked / linux-unpacked
             const platform = unpackedPlatform(path.basename(path.dirname(resourcesDir)));
             let mtime = 0;
-            try { mtime = fs.statSync(found).mtimeMs; } catch (_) { /* 忽略 */ }
+            try { mtime = statReal(found).mtimeMs; } catch (_) { /* 忽略 */ }
             matches.push({ resourcesDir, found, platform, mtime });
         }
         if (!matches.length) continue;
@@ -415,7 +433,7 @@ function findResourcesDir(sourceDir) {
         const pool = (samePlatform.length ? samePlatform : matches).slice().sort((a, b) => b.mtime - a.mtime);
         const best = pool[0];
         const hasUnpacked = fs.existsSync(path.join(best.resourcesDir, 'app.asar.unpacked'))
-            || fs.statSync(best.found).isDirectory();
+            || statReal(best.found).isDirectory();
         return {
             resourcesDir: best.resourcesDir,
             hasUnpacked: hasUnpacked,
@@ -461,49 +479,6 @@ function globAll(root, pattern) {
     }
     walk(root, 0);
     return results;
-}
-
-/**
- * 简易 glob 实现（仅支持 * 和 ** 通配符，同步，返回第一个匹配）
- * 为什么不依赖 fast-glob？保持 canbox-publish.js 零依赖（现有只依赖 adm-zip 用于 zip 打包）
- * @param {string} root - 搜索根目录
- * @param {string} pattern - 相对路径模式
- * @returns {string|null} 第一个匹配的绝对路径
- */
-function globFirst(root, pattern) {
-    const parts = pattern.split('/');
-    function walk(dir, idx) {
-        if (idx >= parts.length) {
-            return fs.existsSync(dir) ? dir : null;
-        }
-        const part = parts[idx];
-        if (part === '**') {
-            // 递归：尝试当前目录所有子目录的所有层级
-            const result = walk(dir, idx + 1);
-            if (result) return result;
-            if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
-            let entries;
-            try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return null; }
-            for (const entry of entries) {
-                if (entry.isDirectory()) {
-                    const found = walk(path.join(dir, entry.name), idx);
-                    if (found) return found;
-                }
-            }
-            return null;
-        }
-        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
-        let entries;
-        try { entries = fs.readdirSync(dir); } catch (_) { return null; }
-        const regex = globPartToRegex(part);
-        for (const name of entries) {
-            if (!regex.test(name)) continue;
-            const found = walk(path.join(dir, name), idx + 1);
-            if (found) return found;
-        }
-        return null;
-    }
-    return walk(root, 0);
 }
 
 /**
@@ -971,9 +946,10 @@ function runPipeline(sourceDir, options = {}) {
             // 新鲜度检查（仅提示，不阻断）：
             // electron-builder 在目录替换失败时会退化为 copy+delete，并保留文件时间戳，
             // 用它和步骤起点做毫秒级比较会误判，因此只针对“早于整个流水线开始”这种明显过旧的产物提示
+            // 注意：必须用 statReal 读真实 mtime，Electron 的 asar 补丁会让 statSync 返回“当前时间”
             const builtAsarPath = path.join(found.resourcesDir, 'app.asar');
             if (fs.existsSync(builtAsarPath)) {
-                const asarMtime = fs.statSync(builtAsarPath).mtimeMs;
+                const asarMtime = statReal(builtAsarPath).mtimeMs;
                 emitLog(`[pipeline] app.asar 时间: ${new Date(asarMtime).toLocaleString()}`, 'stdout');
                 if (asarMtime < pipelineStart - 2000) {
                     emitLog(
