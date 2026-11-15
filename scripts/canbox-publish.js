@@ -369,8 +369,9 @@ function detectPipelineConfig(sourceDir) {
  */
 function unpackedPlatform(dirName) {
     const name = dirName.toLowerCase();
-    if (name.includes('win')) return 'win32';
-    if (name.includes('mac') || name.includes('darwin')) return 'darwin';
+    // darwin 同时包含 "win"，必须先判断，否则 mac 产物会被误判成 win32
+    if (name.includes('darwin') || name.includes('mac')) return 'darwin';
+    if (/(^|[-_.])win(32|64)?([-_.]|$)/.test(name)) return 'win32';
     if (name.includes('linux')) return 'linux';
     return '';
 }
