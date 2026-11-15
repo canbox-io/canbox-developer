@@ -4,6 +4,44 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [0.2.2] - 2026-11-15
+
+### fix | 问题修复 / Bug Fixes
+
+修复 Electron 环境下 stat 读取异常导致的产物判断错误
+修复平台类型误判问题，修正 darwin 和 win32 的判断顺序与规则
+修复构建产物新鲜度校验逻辑，避免误判并改为仅提示不阻断
+修复 Windows 环境下构建时 PATH 变量丢失的问题，补充流水线日志快照逻辑
+修复 Electron 启动时环境变量 PATH 被裁剪导致的 Volta 命令执行异常
+
+Fix artifact detection errors caused by stat read failures in the Electron environment
+Fix platform type misdetection by correcting the darwin/win32 check order and rules
+Fix build artifact freshness validation to avoid false positives, changing it to a non-blocking hint
+Fix PATH loss during Windows builds and add pipeline log snapshots
+Fix Volta command failures caused by a trimmed PATH when Electron launches
+
+### docs | 文档 / Documentation
+
+更新 APP_DEV.md 中的构建配置说明
+更新 APP_DEV.md 新增 whatsNew 功能说明及相关配置字段
+
+Update build configuration notes in APP_DEV.md
+Add whatsNew documentation and related config fields to APP_DEV.md
+
+### ci | 持续集成 / CI
+
+优化发布脚本的产物检测逻辑，增加平台校验和时间戳验证
+
+Improve artifact detection in the release script with platform and timestamp validation
+
+### build | 构建 / Build
+
+优化打包脚本逻辑，新增 Windows 专属打包命令并升级 electron-builder 版本
+版本号更新至 0.2.2
+
+Optimize packaging script logic, add a Windows-specific packaging command and upgrade electron-builder
+Bump version to 0.2.2
+
 ## [0.2.1] - 2026-11-07
 
 ### feat | 新功能 / Features
